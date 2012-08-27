@@ -57,6 +57,7 @@ const char JR_ATTR_USE_SHARED_X509_USER_PROXY[] = "UseSharedX509UserProxy";
 const char JR_ATTR_SHARED_X509_USER_PROXY[] = "SharedX509UserProxy";
 const char JR_ATTR_OVERRIDE_ROUTING_ENTRY[] = "OverrideRoutingEntry";
 const char JR_ATTR_TARGET_UNIVERSE[] = "TargetUniverse";
+const char JR_ATTR_EDIT_JOB_IN_PLACE[] = "EditJobInPlace";
 
 const int THROTTLE_UPDATE_INTERVAL = 600;
 
@@ -838,6 +839,7 @@ RoutedJob::RoutedJob() {
 	proxy_file_copy_chowned = false;
 	target_universe = CONDOR_UNIVERSE_GRID;
 	saw_dest_job = false;
+	edit_job_in_place = false;
 }
 RoutedJob::~RoutedJob() {
 }
@@ -1239,6 +1241,7 @@ JobRouter::GetCandidateJobs() {
 			continue;
 		}
 		job->is_sandboxed = TestJobSandboxed(job);
+		job->edit_job_in_place = TestEditJobInPlace(job);
 
 		/*
 		dprintf(D_FULLDEBUG,"JobRouter DEBUG (%s): parent = %s\n",job->JobDesc().c_str(),ClassAdToString(parent).c_str());
@@ -1326,6 +1329,12 @@ void
 JobRouter::TakeOverJob(RoutedJob *job) {
 	if(job->state != RoutedJob::UNCLAIMED) return;
 
+	if(job->edit_job_in_place) {
+			// we do not claim the job if we are just editing the src job
+		job->state = RoutedJob::CLAIMED;
+		return;
+	}
+
 	MyString error_details;
 	ClaimJobResult cjr = claim_job(job->src_ad,m_schedd1_name,m_schedd1_pool,job->src_proc_id.cluster, job->src_proc_id.proc, &error_details, JobRouterName().c_str(), job->is_sandboxed);
 
@@ -1388,7 +1397,11 @@ JobRouter::SubmitJob(RoutedJob *job) {
 	}
 #endif
 	job->dest_ad = job->src_ad;
-	VanillaToGrid::vanillaToGrid(&job->dest_ad,job->target_universe,job->grid_resource.c_str(),job->is_sandboxed);
+		// If we are not just editing the src job, then we need to do
+		// the standard transformations to create a new job now.
+	if(!job->edit_job_in_place) {
+		VanillaToGrid::vanillaToGrid(&job->dest_ad,job->target_universe,job->grid_resource.c_str(),job->is_sandboxed);
+	}
 	FinishSubmitJob(job);
 }
 
@@ -1405,6 +1418,28 @@ JobRouter::FinishSubmitJob(RoutedJob *job) {
 	// The route ClassAd may change some things in the routed ad.
 	if(!route->ApplyRoutingJobEdits(&job->dest_ad)) {
 		dprintf(D_FULLDEBUG,"JobRouter failure (%s): failed to apply route ClassAd modifications to target ad.\n",job->JobDesc().c_str());
+		GracefullyRemoveJob(job);
+		return;
+	}
+
+	if(job->edit_job_in_place) {
+		if(!push_classad_diff(job->src_ad,job->dest_ad,m_schedd1_name,m_schedd1_pool)) {
+			dprintf(D_ALWAYS, "JobRouter failure (%s): "
+					"Failed to edit job.\n",
+					job->JobDesc().c_str());
+		}
+		else {
+				// Update our local copy in the job queue mirror
+			classad::ClassAdCollection *ad_collection = GetSchedd1ClassAds();
+			ad_collection->RemoveClassAd(job->src_key);
+			ad_collection->AddClassAd(job->src_key, new ClassAd(job->dest_ad));
+
+			dprintf(D_ALWAYS, "JobRouter (%s): Done editing job.\n",
+					job->JobDesc().c_str());
+			job->is_success = true;
+			job->is_done = true;
+		}
+			// All done editing the job.
 		GracefullyRemoveJob(job);
 		return;
 	}
@@ -1940,6 +1975,45 @@ JobRouter::TestJobSandboxed(RoutedJob *job)
 }
 
 bool
+JobRouter::TestEditJobInPlace(RoutedJob *job)
+{
+	JobRoute *route = GetRouteByName(job->route_name.c_str());
+	if(!route) {
+			// It doesn't matter what we decide here, because there is no longer
+			// any route associated with this job.
+		return true;
+	}
+	classad::MatchClassAd mad;
+	bool test_result = false;
+
+	mad.ReplaceLeftAd(route->RouteAd());
+	mad.ReplaceRightAd(&job->src_ad);
+
+	classad::ClassAd *upd;
+	classad::ClassAdParser parser;
+	std::string upd_str;
+	upd_str = "[leftEditJobInPlace = LEFT.";
+	upd_str += JR_ATTR_EDIT_JOB_IN_PLACE;
+	upd_str += " ;]";
+	upd = parser.ParseClassAd(upd_str);
+	ASSERT(upd);
+
+	mad.Update(*upd);
+	delete upd;
+
+	bool rc = mad.EvaluateAttrBool("leftEditJobInPlace", test_result);
+	if(!rc) {
+			// UNDEFINED etc. are treated as false
+		test_result = false;
+	}
+
+	mad.RemoveLeftAd();
+	mad.RemoveRightAd();
+
+	return test_result;
+}
+
+bool
 JobRoute::EvalUseSharedX509UserProxy(RoutedJob *job)
 {
 	classad::MatchClassAd mad;
@@ -2184,7 +2258,7 @@ JobRouter::InvalidatePublicAd() {
 	invalidate_ad.SetMyTypeName(QUERY_ADTYPE);
 	invalidate_ad.SetTargetTypeName("Job_Router");
 
-	line.sprintf("%s == \"%s\"", ATTR_NAME, daemonName.c_str());
+	line.formatstr("%s == \"%s\"", ATTR_NAME, daemonName.c_str());
 	invalidate_ad.AssignExpr(ATTR_REQUIREMENTS, line.Value());
 	daemonCore->sendUpdates(INVALIDATE_ADS_GENERIC, &invalidate_ad, NULL, false);
 }
@@ -2229,7 +2303,7 @@ JobRoute::ThrottleDesc(double throttle) {
 	}
 	else {
 		MyString buf;
-		buf.sprintf("%g jobs/sec",throttle/THROTTLE_UPDATE_INTERVAL);
+		buf.formatstr("%g jobs/sec",throttle/THROTTLE_UPDATE_INTERVAL);
 		desc = buf.Value();
 	}
 	return desc;
