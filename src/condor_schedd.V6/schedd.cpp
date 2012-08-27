@@ -2291,6 +2291,9 @@ a thread.
 What do we do here?  At the moment if the job has a "sandbox" directory
 ("condor_submit -s", Condor-C, or the SOAP interface) we chown it from
 condor to the user.  In the future we might allocate a dynamic account here.
+
+If a job requests that we stage via the internal HTTP server, we register
+it now.
 */
 int
 aboutToSpawnJobHandler( int cluster, int proc, void* )
@@ -2300,6 +2303,10 @@ aboutToSpawnJobHandler( int cluster, int proc, void* )
 
 	ClassAd * job_ad = GetJobAd( cluster, proc );
 	ASSERT( job_ad ); // No job ad?
+
+	TransferInputHttp & inputManager = TransferInputHttp::GetInstance();
+	inputManager.SpoolReady(*job_ad);
+
 	if( ! SpooledJobFiles::jobRequiresSpoolDirectory(job_ad) ) {
 			// nothing more to do...
 		FreeJobAd( job_ad );
@@ -2548,6 +2555,9 @@ jobIsFinished( int cluster, int proc, void* )
 	if( SpooledJobFiles::jobRequiresSpoolDirectory(job_ad) ) {
 		SpooledJobFiles::chownSpoolDirectoryToCondor(job_ad);
 	}
+
+	TransferInputHttp &inputManager = TransferInputHttp::GetInstance();
+	inputManager.JobExitQueue(*job_ad);
 
 #else	/* WIN32 */
 

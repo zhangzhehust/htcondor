@@ -1493,6 +1493,7 @@ class DaemonCore : public Service
 		*/
 	void ReloadSharedPortServerAddr();
 
+	struct soap * GetSoap() { return soap; }
 
 	//-----------------------------------------------------------------------------
 	/*
