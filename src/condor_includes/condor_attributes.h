@@ -689,6 +689,7 @@
 #define ATTR_TRANSFER_INTERMEDIATE_FILES  "TransferIntermediate"
 #define ATTR_TRANSFER_OUTPUT_FILES  "TransferOutput"
 #define ATTR_TRANSFER_OUTPUT_REMAPS  "TransferOutputRemaps"
+#define ATTR_TRANSFER_CACHE_INPUT_FILES "TransferCacheInputFiles"
 #define ATTR_PRESERVE_RELATIVE_EXECUTABLE  "PreserveRelativeExecutable"
 #define ATTR_SPOOLED_OUTPUT_FILES  "SpooledOutputFiles"
 #define ATTR_ENCRYPT_INPUT_FILES  "EncryptInputFiles"

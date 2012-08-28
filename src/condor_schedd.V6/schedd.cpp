@@ -95,6 +95,7 @@
 #include "ClassAdLogPlugin.h"
 #endif
 #endif
+#include "transfer_input.h"
 
 #if defined(WINDOWS) && !defined(MAXINT)
 	#define MAXINT INT_MAX
@@ -2305,8 +2306,16 @@ aboutToSpawnJobHandler( int cluster, int proc, void* )
 	ASSERT( job_ad ); // No job ad?
 
 	TransferInputHttp & inputManager = TransferInputHttp::GetInstance();
-	inputManager.SpoolReady(*job_ad);
-
+	if (inputManager.SpoolReady(*job_ad)) {
+		const char *name;
+		ExprTree *expr;
+		job_ad->ResetExpr();
+		// Setting this as NONDURABLE; if the schedd crashes and we lose this change,
+		// we will recompute it the next time we launch a shadow.
+		while ( job_ad->NextDirtyExpr(name, expr) ) {
+			SetAttribute(cluster, proc, name, ExprTreeToString(expr), NONDURABLE);
+		}
+	}
 	if( ! SpooledJobFiles::jobRequiresSpoolDirectory(job_ad) ) {
 			// nothing more to do...
 		FreeJobAd( job_ad );
