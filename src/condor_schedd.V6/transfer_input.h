@@ -55,6 +55,7 @@ private:
 	bool RemoveFile(const std::string &file, const std::string &user);
 
 	static int GetHandler(struct soap *);
+	static int ServeFile(FILE *, struct soap *);
 
 	int (*m_condor_get_handler)(struct soap *);
 

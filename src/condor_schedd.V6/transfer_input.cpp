@@ -15,10 +15,90 @@ extern DaemonCore *daemonCore;
 
 TransferInputHttp* TransferInputHttp::g_input = NULL;
 
+// TODO: How to best reap children?
+
 int
 TransferInputHttp::GetHandler(struct soap * gsoap) {
 	TransferInputHttp & input = TransferInputHttp::GetInstance();
-	return input.m_condor_get_handler(gsoap);
+
+	// If its not a registered request, pass this to the prior Condor handler.	
+	classad_unordered<std::string, std::string>::iterator req_it = input.m_request_to_file.find(gsoap->path);
+	if (req_it == input.m_request_to_file.end()) {
+		return input.m_condor_get_handler(gsoap);
+	}
+
+	gsoap->http_content = "application/octet-stream";
+
+	// TODO: user privileges
+	// init_user_ids_quiet(username);
+	TemporaryPrivSentry sentry(PRIV_CONDOR);
+
+	FILE *fstr = safe_fopen_wrapper(gsoap->path, "rb");
+	if (fstr == NULL) {
+		return 404; // TODO: check retval.
+	}
+
+	struct soap * gsoap_copy = soap_copy(gsoap);
+
+	ForkStatus fork_status = FORK_FAILED;
+	fork_status = input.m_transfer_forker.NewJob();
+	if( fork_status == FORK_PARENT ) {
+		// Close soap
+		close(gsoap->socket);
+		gsoap->socket = SOAP_INVALID_SOCKET;
+		soap_end(gsoap);
+		soap_free(gsoap);
+		fclose(fstr);
+		return SOAP_OK;
+	}
+
+	// Drop privs forever if we're the child.
+	if (fork_status == FORK_CHILD) {
+		set_priv(PRIV_CONDOR_FINAL);
+	}
+
+	// FORK_BUSY or FORK_CHILD
+	int retval = ServeFile(fstr, gsoap_copy);
+
+	if (fork_status == FORK_CHILD) {
+		input.m_transfer_forker.WorkerDone();
+	}
+
+	soap_end(gsoap_copy);
+	soap_done(gsoap_copy);
+
+	return retval;
+}
+
+int
+TransferInputHttp::ServeFile(FILE * file, struct soap * gsoap)
+{
+	char byte_buffer [4096];
+	ssize_t bytes_read;
+	while ((bytes_read = fread(byte_buffer, 1, sizeof(byte_buffer), file))) {
+		if (soap_send_raw(gsoap, byte_buffer, bytes_read) != SOAP_OK) {
+			dprintf(D_FULLDEBUG, "Failed to send data to remote host.\n");
+			if (soap_end_send(gsoap) != SOAP_OK) {
+				dprintf(D_FULLDEBUG, "Failed to end transaction\n");
+				fclose(file);
+				return gsoap->error;
+			}
+		}
+	}
+	if (ferror(file)) {
+		dprintf(D_ALWAYS, "Failed to serve file: (errno=%d, %s)\n", errno, strerror(errno));
+		fclose(file);
+		gsoap->error = SOAP_HTTP_ERROR;
+		return 500;
+	}
+	fclose(file);
+
+	if (soap_end_send(gsoap) != SOAP_OK) {
+		dprintf(D_FULLDEBUG, "Failed to end connection after file transfer.\n");
+		return gsoap->error;
+	}
+
+	return SOAP_OK;
 }
 
 TransferInputHttp & TransferInputHttp::GetInstance()
@@ -136,7 +216,9 @@ TransferInputHttp::AddFile(const std::string &file, const std::string &user, std
 	}
 
 	std::stringstream ss;
-	ss << m_web_root << "/" << md5_str << "/" << file;
+	// TODO: Sanitize string
+	// XXX:  Finish adding user hashing
+	ss << m_web_root << "/" << md5_str << "/" << user << "/" << file;
 	std::string path_str(ss.str());
 
 	// Note we don't update any internal structures until the IO operations are all finished.
@@ -157,7 +239,7 @@ TransferInputHttp::AddFile(const std::string &file, const std::string &user, std
 	}
 
 	ss.str("");
-	ss << "http://" << get_local_hostname().Value() << "/" << m_web_root << "/" << md5_str << "/" << file;
+	ss << "http://" << get_local_hostname().Value() << "/" << m_web_root << "/" << md5_str << "/" << user << "/" << file;
 	resulting_name = ss.str();
 
 	return true;
