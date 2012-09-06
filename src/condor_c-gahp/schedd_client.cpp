@@ -29,8 +29,6 @@
 #include "format_time.h"  // for format_time and friends
 #include "daemon.h"
 #include "dc_schedd.h"
-#include "condor_xml_classads.h"
-#include "condor_new_classads.h"
 #include "setenv.h"
 #include "globus_utils.h"
 #include "PipeBuffer.h"
@@ -173,7 +171,6 @@ doContactSchedd()
 		}
 	}
 
-	
 	SchedDRequest::schedd_command_type commands [] = {
 		SchedDRequest::SDC_REMOVE_JOB,
 		SchedDRequest::SDC_HOLD_JOB,
@@ -187,7 +184,6 @@ doContactSchedd()
 	// RELEASE
 	int i=0;
 	while (i<3) {
-		
 		
 		StringList id_list;
 		SimpleList <SchedDRequest*> this_batch;
@@ -361,6 +357,7 @@ doContactSchedd()
 
 	SimpleList <SchedDRequest*> stage_in_batch;
 	do {
+
 		stage_in_batch.Clear();
 
 		command_queue.Rewind();
@@ -559,6 +556,11 @@ doContactSchedd()
 	// Now do all the QMGMT transactions
 	error = FALSE;
 
+	// Limit the time we spend connected to the schedd
+	int interaction_time = param_integer("CGAHP_SCHEDD_INTERACTION_TIME", 5);
+	time_t starttime = time(NULL);
+	bool rerun_immediately = false;
+
 	// Try connecting to the queue
 	Qmgr_connection * qmgr_connection;
 	
@@ -593,7 +595,12 @@ doContactSchedd()
 
 		if (qmgr_connection == NULL)
 			goto update_report_result;
-		
+
+		if (time(NULL) - starttime > interaction_time) {
+			rerun_immediately = true;
+			break;
+		}
+
 		error = FALSE;
 		errno = 0;
 		BeginTransaction();
@@ -633,7 +640,8 @@ doContactSchedd()
 					if( SetAttribute(current_command->cluster_id,
 											current_command->proc_id,
 											lhstr,
-											rhstr) == -1 ) {
+											rhstr,
+											SetAttribute_NoAck) == -1 ) {
 						if ( errno == ETIMEDOUT ) {
 							failure_line_num = __LINE__;
 							failure_errno = errno;
@@ -672,8 +680,18 @@ update_report_result:
 			}
 		} else {
 			if ( RemoteCommitTransaction() < 0 ) {
-				failure_line_num = __LINE__;
-				failure_errno = errno;
+				// We assume the preceeding SetAttribute() with NoAck
+				// is what really failed. Mark this command as failed
+				// and jump to the end (since the schedd has closed
+				// the connection). Any subsequent commands will be
+				// tried the next time we come through.
+				error_msg =  "ERROR: Failed to set attribute";
+				const char * result[] = {
+					GAHP_RESULT_FAILURE,
+					error_msg.c_str() };
+				enqueue_result (current_command->request_id, result, 2);
+				current_command->status = SchedDRequest::SDCS_COMPLETED;
+				rerun_immediately = true;
 				goto contact_schedd_disconnect;
 			}
 			const char * result[] = {
@@ -699,6 +717,11 @@ update_report_result:
 
 		if (current_command->command != SchedDRequest::SDC_UPDATE_LEASE)
 			continue;
+
+		if (time(NULL) - starttime > interaction_time) {
+			rerun_immediately = true;
+			break;
+		}
 
 		std::string success_job_ids="";
 		if (qmgr_connection == NULL) {
@@ -804,6 +827,11 @@ update_report_result:
 
 		if (current_command->command != SchedDRequest::SDC_SUBMIT_JOB)
 			continue;
+
+		if (time(NULL) - starttime > interaction_time) {
+			rerun_immediately = true;
+			break;
+		}
 
 		int ClusterId = -1;
 		int ProcId = -1;
@@ -931,7 +959,8 @@ update_report_result:
 					error = TRUE;
 				} else if( SetAttribute (ClusterId, ProcId,
 											lhstr,
-											rhstr) == -1 ) {
+											rhstr,
+											SetAttribute_NoAck) == -1 ) {
 					if ( errno == ETIMEDOUT ) {
 						failure_line_num = __LINE__;
 						failure_errno = errno;
@@ -969,8 +998,19 @@ submit_report_result:
 			current_command->status = SchedDRequest::SDCS_COMPLETED;
 		} else {
 			if ( RemoteCommitTransaction() < 0 ) {
-				failure_line_num = __LINE__;
-				failure_errno = errno;
+				// We assume the preceeding SetAttribute() with NoAck
+				// is what really failed. Mark this command as failed
+				// and jump to the end (since the schedd has closed
+				// the connection). Any subsequent commands will be
+				// tried the next time we come through.
+				error_msg =  "ERROR: Failed to submit job";
+				const char * result[] = {
+					GAHP_RESULT_FAILURE,
+					job_id_buff,
+					error_msg.c_str() };
+				enqueue_result (current_command->request_id, result, 3);
+				current_command->status = SchedDRequest::SDCS_COMPLETED;
+				rerun_immediately = true;
 				goto contact_schedd_disconnect;
 			}
 			const char * result[] = {
@@ -995,8 +1035,13 @@ submit_report_result:
 		if (current_command->command != SchedDRequest::SDC_STATUS_CONSTRAINED)
 			continue;
 
+		if (time(NULL) - starttime > interaction_time) {
+			rerun_immediately = true;
+			break;
+		}
+
 		if (qmgr_connection != NULL) {
-			SimpleList <MyString *> matching_ads;
+			SimpleList <std::string *> matching_ads;
 
 			error = FALSE;
 			
@@ -1029,15 +1074,14 @@ submit_report_result:
 
 			adlist.Rewind();
 			while( (next_ad=adlist.Next()) ) {
-				MyString * da_buffer = new MyString();	// Use a ptr to avoid excessive copying
+				std::string * da_buffer = new std::string();	// Use a ptr to avoid excessive copying
 				if ( useXMLClassads ) {
-					ClassAdXMLUnparser unparser;
-					unparser.SetUseCompactSpacing(true);
-					unparser.Unparse (next_ad, *da_buffer);
+					classad::ClassAdXMLUnParser unparser;
+					unparser.SetCompactSpacing( true );
+					unparser.Unparse( *da_buffer, next_ad );
 				} else {
-					NewClassAdUnparser unparser;
-					unparser.SetUseCompactSpacing(true);
-					unparser.Unparse (next_ad, *da_buffer);
+					classad::ClassAdUnParser unparser;
+					unparser.Unparse( *da_buffer, next_ad );
 				}
 				matching_ads.Append (da_buffer);
 			}
@@ -1058,10 +1102,10 @@ submit_report_result:
 			result[count++] = NULL;
 			result[count++] = _ad_count.c_str();
 
-			MyString *next_string;
+			std::string *next_string;
 			matching_ads.Rewind();
 			while (matching_ads.Next(next_string)) {
-				result[count++] = next_string->Value();
+				result[count++] = next_string->c_str();
 			}
 
 			enqueue_result (current_command->request_id, result, count);
@@ -1167,9 +1211,14 @@ submit_report_result:
 		}
 	}
 
+	dprintf (D_FULLDEBUG, "Schedd interaction took %ld seconds.\n", time(NULL)-starttime);
+	if (rerun_immediately) {
+		dprintf (D_FULLDEBUG, "Schedd interaction time hit limit; will retry immediately.\n");
+	}
+
 	// Come back soon..
 	// QUESTION: Should this always be a fixed time period?
-	daemonCore->Reset_Timer( contactScheddTid, contact_schedd_interval );
+	daemonCore->Reset_Timer( contactScheddTid, rerun_immediately ? 1 : contact_schedd_interval );
 }
 
 
@@ -1480,11 +1529,19 @@ get_job_id (const char * s, int * cluster_id, int * proc_id) {
 int
 get_class_ad (const char * s, ClassAd ** class_ad) {
 	if ( useXMLClassads ) {
-		ClassAdXMLParser parser;
-		*class_ad = parser.ParseClassAd (s);
+		classad::ClassAdXMLParser parser;
+		*class_ad = new ClassAd;
+		if ( !parser.ParseClassAd( s, **class_ad ) ) {
+			delete *class_ad;
+			*class_ad = NULL;
+		}
 	} else {
-		NewClassAdParser parser;
-		*class_ad = parser.ParseClassAd (s);
+		classad::ClassAdParser parser;
+		*class_ad = new ClassAd;
+		if ( !parser.ParseClassAd( s, **class_ad ) ) {
+			delete *class_ad;
+			*class_ad = NULL;
+		}
 	}
 	if ( *class_ad ) {
 		return TRUE;
