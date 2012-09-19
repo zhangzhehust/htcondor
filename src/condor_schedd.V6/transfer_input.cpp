@@ -8,12 +8,56 @@
 
 #include "stdsoap2.h"
 #include <sstream>
+#include <vector>
+#include "boost/tokenizer.hpp"
 
 #include "transfer_input.h"
 
 extern DaemonCore *daemonCore;
 
 TransferInputHttp* TransferInputHttp::g_input = NULL;
+
+using namespace boost;
+
+static bool
+abspath_internal(const std::string & filename, std::string & result)
+{
+	char_delimiters_separator<char> sep(false, "", "/");
+	tokenizer<> tok(filename, sep);
+	std::vector<std::string> path_pieces;
+	for(tokenizer<>::const_iterator it=tok.begin(); it!=tok.end(); it++) {
+		if (*it == ".") {
+			continue;
+		} else if (*it == "..") {
+			path_pieces.pop_back();
+		} else {
+			path_pieces.push_back(*it);
+		}
+	}
+	std::stringstream ss;
+	for (std::vector<std::string>::const_iterator it2 = path_pieces.begin(); it2 != path_pieces.end(); it2++) {
+		ss << "/" << *it2;
+	}
+	result = ss.str();
+	return true;
+}
+
+static bool
+abspath(const std::string & filename, const ClassAd & ad, std::string & result)
+{
+	if (filename.empty())
+		return false;
+	result.clear();
+	if (filename[0] != '/') {
+		std::string iwd;
+		if (!ad.LookupString(ATTR_JOB_IWD, iwd)) {
+			return false;
+		}
+		return abspath_internal(iwd + "/" + filename, result);
+	} else {
+		return abspath_internal(filename, result);
+	}
+}
 
 // TODO: How to best reap children?
 
@@ -155,10 +199,14 @@ TransferInputHttp::SpoolReady(compat_classad::ClassAd& jobad)
 				(!encrypt_files_list.contains_withwildcard(next_file) ||
 				 dont_encrypt_files_list.contains_withwildcard(next_file))) {
 			resulting_cache_files.push_back(next_file);
+			dprintf(D_FULLDEBUG, "Keeping file %s on input files list.\n", next_file);
 		} else {
 			resulting_input_files.push_back(next_file);
+			dprintf(D_FULLDEBUG, "Adding file %s to cache file list.\n", next_file);
 		}
 	}
+
+	dprintf(D_FULLDEBUG, "Adding %lu files to the cache list.\n", resulting_cache_files.size());
 
 	std::string user;
 	if (!jobad.LookupString(ATTR_OWNER, user)) {
@@ -167,9 +215,15 @@ TransferInputHttp::SpoolReady(compat_classad::ClassAd& jobad)
 	}
 	for (std::vector<std::string>::const_iterator it=resulting_cache_files.begin(); it != resulting_cache_files.end(); it++)
 	{
+		std::string fullpath;
+		if (!abspath(*it, jobad, fullpath)) {
+			dprintf(D_ALWAYS, "Improperly named cache file %s.\n", it->c_str());
+			return false;
+		}
 		dprintf(D_FULLDEBUG, "Attempting to cache input file %s.\n", it->c_str());
 		std::string resulting_name;
 		if (AddFile(*it, user, resulting_name)) {
+			// TODO: check for duplicates
 			resulting_cache_files.push_back(resulting_name);
 		} else {
 			resulting_input_files.push_back(*it);
@@ -177,6 +231,7 @@ TransferInputHttp::SpoolReady(compat_classad::ClassAd& jobad)
 	}
 
 	if (!resulting_input_files.empty()) {
+		// TODO: Do we need to add an expression to the classad noting we need a http handler?
 		std::string resulting_files;
 		join(resulting_input_files, ",", resulting_files);
 		jobad.Assign(ATTR_TRANSFER_INPUT_FILES, resulting_files);
@@ -249,12 +304,15 @@ bool
 TransferInputHttp::RemoveFile(const std::string &file, const std::string &user)
 {
 	classad_unordered<std::string, size_t>::iterator refcount = m_file_refcount.find(file);
-	if ((refcount == m_file_refcount.end()) || ((refcount->second) != 1)) {
-		m_file_refcount[file] = refcount->second - 1;
+	if (refcount == m_file_refcount.end()) {
 		return false;
 	}
 	m_file_refcount[file] = refcount->second - 1;
+	if (refcount->second - 1 != 0) {
+		return false;
+	}
 
+	dprintf(D_FULLDEBUG, "Removing %s due to its last refcount decreasing.", file.c_str());
 	// Decrease the usage stats.
 	struct stat buf;
 	if (stat(file.c_str(), &buf) == -1) {

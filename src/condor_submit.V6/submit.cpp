@@ -292,6 +292,7 @@ const char	*ToolDaemonOutput = "tool_daemon_output";
 const char	*SuspendJobAtExec = "suspend_job_at_exec";
 
 const char	*TransferInputFiles = "transfer_input_files";
+#define          CacheInputFiles      "cache_input_files"
 const char	*TransferOutputFiles = "transfer_output_files";
 const char    *TransferOutputRemaps = "transfer_output_remaps";
 const char	*TransferExecutable = "transfer_executable";
@@ -3087,6 +3088,40 @@ SetTransferFiles()
 		}
 
 		check_open(output_file, O_WRONLY|O_CREAT|O_TRUNC );
+	}
+
+		// Look for cache usage
+
+	StringList cache_input_file_list(NULL, ",");
+	macro_value = condor_param( CacheInputFiles, "TransferCacheInputFiles" ) ;
+	if( macro_value ) {
+		cache_input_file_list.initializeFromString( macro_value );
+	}
+	
+	if (should_transfer == STF_NO) {
+		// TODO: error!?!
+	} else {
+		count = 0;
+		cache_input_file_list.rewind();
+		while ( (tmp_ptr=cache_input_file_list.next()) ) {
+			tmp = tmp_ptr;
+			if ( check_and_universalize_path(tmp) != 0) {
+				cache_input_file_list.deleteCurrent();
+				cache_input_file_list.insert(tmp.Value());
+			}
+			count++;
+		}
+		tmp_ptr = cache_input_file_list.print_to_string();
+		if ( count ) {
+			MyString cache_input_files;
+			cache_input_files.formatstr ("%s = \"%s\"", ATTR_TRANSFER_CACHE_INPUT_FILES, tmp_ptr);
+			free(tmp_ptr);
+			tmp_ptr = NULL;
+			if ( cache_input_files.Length() > 0 ) {
+	                        InsertJobExpr (cache_input_files);
+			}
+		}
+		free(macro_value);
 	}
 }
 
