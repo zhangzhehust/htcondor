@@ -46,6 +46,8 @@ typedef struct MapEntry {
 /* FILESQL object extern */
 extern FILESQL *FILEObj;
 
+typedef std::vector<classad_shared_ptr<ClassAd> > ClassAds;
+
 struct GroupEntry {
     typedef vector<int>::size_type size_type;
 
@@ -62,6 +64,7 @@ struct GroupEntry {
     // current usage information coming into this negotiation cycle
     double usage;
     ClassAdListDoesNotDeleteAds* submitterAds;
+    ClassAds daemonAds;
     double priority;
 
     // slot quota as computed by HGQ
@@ -157,7 +160,7 @@ class Matchmaker : public Service
 		void updateCollector();
 
 		// auxillary functions
-		bool obtainAdsFromCollector (ClassAdList&, ClassAdListDoesNotDeleteAds&, ClassAdListDoesNotDeleteAds&, ClaimIdHash& );	
+		bool obtainAdsFromCollector (ClassAdList&, ClassAdListDoesNotDeleteAds&, ClassAdListDoesNotDeleteAds&, ClassAds&, ClaimIdHash& );	
 		char * compute_significant_attrs(ClassAdListDoesNotDeleteAds & startdAds);
 		bool consolidate_globaljobprio_submitter_ads(ClassAdListDoesNotDeleteAds & scheddAds);
 		
@@ -165,6 +168,8 @@ class Matchmaker : public Service
             @param groupName name of group negotiating under (or NULL)
 			@param scheddName Name attribute from the submitter ad.
 			@param scheddAddr Sinful string of schedd for this submitter.
+			@param daemonAd ClassAd of the schedd we are negotiating with
+			@param submitterAd ClassAd of the submitter we are negotiating with
 			@param priority Priority of this user from the accountant.
 			@param share Priority w/o up-down (just relative prio factor).
 			@param submitterLimit Give away this many matches max
@@ -180,7 +185,8 @@ class Matchmaker : public Service
 					MM_DONE if schedd got all the resources it wanted,
 					MM_ERROR if problem negotiating w/ this schedd.
 		**/
-		int negotiate(char const* groupName, char const *scheddName, const ClassAd *scheddAd, 
+		int negotiate(char const* groupName, char const *scheddName, const ClassAd &daemonAd,
+		   const ClassAd *submitterAd, 
 		   double priority,
            double submitterLimit, double submitterLimitUnclaimed,
 		   ClassAdListDoesNotDeleteAds &startdAds, ClaimIdHash &claimIds, 
@@ -192,14 +198,20 @@ class Matchmaker : public Service
 								 double minSlotWeight,
 			ClassAdListDoesNotDeleteAds& startdAds, 
 			ClaimIdHash& claimIds, ClassAdListDoesNotDeleteAds& scheddAds, 
+			const ClassAds& daemonAds,
 			float groupQuota=INT_MAX, const char* groupName=NULL);
 
 		
-		ClassAd *matchmakingAlgorithm(const char* scheddName, const char* scheddAddr, ClassAd& request, ClassAdListDoesNotDeleteAds& startdAds,
-									  double preemptPrio, 
+		ClassAd *matchmakingAlgorithm(const char* scheddName, const char* scheddAddr,
+                                      const ClassAd& scheddAd, ClassAd& request,
+                                      ClassAdListDoesNotDeleteAds& startdAds, double preemptPrio, 
                                       double limitUsed, double limitUsedUnclaimed,
                                       double submitterLimit, double submitterLimitUnclaimed, 
                                       double pieLeft, bool only_for_startdrank);
+
+		bool IsANetworkMatch(classad::ClassAd &request, classad::ClassAd &candidate, const classad::ClassAd &scheddAd);
+		bool EstimateNetworkBandwidth(const classad::ClassAd &scheddAd, const classad::ClassAd &machineAd, long &bandwidth_down_mbps, long &bandwidth_up_mbps);
+
 		int matchmakingProtocol(ClassAd &request, ClassAd *offer, 
 						ClaimIdHash &claimIds, Sock *sock,
 						const char* scheddName, const char* scheddAddr);
@@ -466,8 +478,8 @@ class Matchmaker : public Service
         // set at startup/restart/reinit
         GroupEntry* hgq_root_group;
         string hgq_root_name;
-        vector<GroupEntry*> hgq_groups;
-        map<string, GroupEntry*> group_entry_map;
+        std::vector<GroupEntry*> hgq_groups;
+        std::map<string, GroupEntry*> group_entry_map;
         bool accept_surplus;
         bool autoregroup;
         bool allow_quota_oversub;
@@ -480,7 +492,7 @@ class Matchmaker : public Service
         double hgq_round_robin(GroupEntry* group, double surplus);
 
         struct ord_by_rr_time {
-            vector<GroupEntry*>* data;
+            std::vector<GroupEntry*>* data;
             bool operator()(unsigned long const& ja, unsigned long const& jb) const {
                 GroupEntry* a = (*data)[ja];
                 GroupEntry* b = (*data)[jb];

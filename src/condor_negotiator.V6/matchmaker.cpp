@@ -1162,6 +1162,7 @@ negotiationTime ()
         //ClaimIdHash claimIds(MyStringHash);
     ClaimIdHash claimIds;
 	ClassAdListDoesNotDeleteAds scheddAds; // ptrs to schedd ads in allAds
+	ClassAds daemonAds;
 
 	/**
 		Check if we just finished a cycle less than NEGOTIATOR_CYCLE_DELAY 
@@ -1209,7 +1210,7 @@ negotiationTime ()
 	// ----- Get all required ads from the collector
     time_t start_time_phase1 = time(NULL);
 	dprintf( D_ALWAYS, "Phase 1:  Obtaining ads from collector ...\n" );
-	if( !obtainAdsFromCollector( allAds, startdAds, scheddAds,
+	if( !obtainAdsFromCollector( allAds, startdAds, scheddAds, daemonAds,
 		claimIds ) )
 	{
 		dprintf( D_ALWAYS, "Aborting negotiation cycle\n" );
@@ -1304,7 +1305,7 @@ negotiationTime ()
         // If there is only one group (the root group) we are in traditional non-HGQ mode.
         // It seems cleanest to take the traditional case separately for maximum backward-compatible behavior.
         // A possible future change would be to unify this into the HGQ code-path, as a "root-group-only" case. 
-        negotiateWithGroup(cPoolsize, weightedPoolsize, minSlotWeight, startdAds, claimIds, scheddAds);
+        negotiateWithGroup(cPoolsize, weightedPoolsize, minSlotWeight, startdAds, claimIds, scheddAds, daemonAds);
     } else {
         // Otherwise we are in HGQ mode, so begin HGQ computations
 
@@ -1327,6 +1328,7 @@ negotiationTime ()
                 group->submitterAds->Remove(ad);
             }
             group->submitterAds->Close();
+            group->daemonAds.clear();
 
             group->usage = accountant.GetWeightedResourcesUsed(group->name.c_str());
             group->priority = accountant.GetPriority(group->name.c_str());
@@ -1336,7 +1338,9 @@ negotiationTime ()
         // cycle through the submitter ads, and load them into the appropriate group node in the tree
         dprintf(D_ALWAYS, "group quotas: assigning %d submitters to accounting groups\n", int(scheddAds.MyLength()));
         scheddAds.Open();
+		ClassAds::const_iterator it = daemonAds.begin();
         while (ClassAd* ad = scheddAds.Next()) {
+			classad_shared_ptr<ClassAd> daemonAd = *(it++);
             MyString tname;
             if (!ad->LookupString(ATTR_NAME, tname)) {
                 dprintf(D_ALWAYS, "group quotas: WARNING: ignoring submitter ad with no name\n");
@@ -1356,6 +1360,7 @@ negotiationTime ()
 
             // attach the submitter ad to the assigned group
             group->submitterAds->Insert(ad);
+			group->daemonAds.push_back(daemonAd);
 
             // Accumulate the submitter jobs submitted against this group
             // To do: investigate getting these values directly from schedds.  The
@@ -1392,8 +1397,11 @@ negotiationTime ()
                 if (group == hgq_root_group) continue;
                 if (!group->autoregroup) continue;
                 group->submitterAds->Open();
+				ClassAds::const_iterator it = group->daemonAds.begin();
                 while (ClassAd* ad = group->submitterAds->Next()) {
+					classad_shared_ptr<ClassAd> daemonAd = *(it++);
                     hgq_root_group->submitterAds->Insert(ad);
+					hgq_root_group->daemonAds.push_back(daemonAd);
                 }
                 group->submitterAds->Close();
                 ++n;
@@ -1604,11 +1612,11 @@ negotiationTime ()
                         dprintf(D_ALWAYS, "group quotas: autoregroup mode: negotiating with autoregroup for %s\n", group->name.c_str());
                         negotiateWithGroup(cPoolsize, weightedPoolsize, minSlotWeight,
                                            startdAds, claimIds, *(group->submitterAds),
-                                           slots, NULL);
+                                           group->daemonAds, slots, NULL);
                     } else {
                         negotiateWithGroup(cPoolsize, weightedPoolsize, minSlotWeight,
                                            startdAds, claimIds, *(group->submitterAds), 
-                                           slots, group->name.c_str());
+                                           group->daemonAds, slots, group->name.c_str());
                     }
                 }
 
@@ -2449,6 +2457,7 @@ negotiateWithGroup ( int untrimmed_num_startds,
 					 ClassAdListDoesNotDeleteAds& startdAds,
 					 ClaimIdHash& claimIds, 
 					 ClassAdListDoesNotDeleteAds& scheddAds, 
+					 const ClassAds& daemonAds, 
 					 float groupQuota, const char* groupName)
 {
 	ClassAd		*schedd;
@@ -2564,8 +2573,10 @@ negotiateWithGroup ( int untrimmed_num_startds,
 		scheddAds.Open();
         // These are submitter ads, not the actual schedd daemon ads.
         // "schedd" seems to be used interchangeably with "submitter" here
+		ClassAds::const_iterator it = daemonAds.begin();
 		while( (schedd = scheddAds.Next()) )
 		{
+			classad_shared_ptr<ClassAd> daemonAd = *(it++);
             if (!ignore_submitter_limit && (NULL != groupName) && (accountant.GetWeightedResourcesUsed(groupName) >= groupQuota)) {
                 // If we met group quota, and if we're respecting submitter limits, halt.
                 // (output message at top of outer loop above)
@@ -2711,7 +2722,7 @@ negotiateWithGroup ( int untrimmed_num_startds,
                     }
 					negotiation_cycle_stats[0]->active_submitters.insert(scheddName.Value());
 					negotiation_cycle_stats[0]->active_schedds.insert(scheddAddr.Value());
-					result=negotiate(groupName, scheddName.Value(), schedd, submitterPrio,
+					result=negotiate(groupName, scheddName.Value(), *daemonAd, schedd, submitterPrio,
                                   submitterLimit, submitterLimitUnclaimed,
 								  startdAds, claimIds, 
 								  ignore_submitter_limit,
@@ -2923,7 +2934,8 @@ bool Matchmaker::
 obtainAdsFromCollector (
 						ClassAdList &allAds,
 						ClassAdListDoesNotDeleteAds &startdAds, 
-						ClassAdListDoesNotDeleteAds &scheddAds, 
+						ClassAdListDoesNotDeleteAds &scheddAds,
+						ClassAds &daemonAds,
 						ClaimIdHash &claimIds )
 {
 	CondorQuery privateQuery(STARTD_PVT_AD);
@@ -2934,6 +2946,7 @@ obtainAdsFromCollector (
 	char    *remoteHost = NULL;
 	MyString buffer;
 	CollectorList* collects = daemonCore->getCollectorList();
+	ClassAds tmpDaemonAds;
 
     cp_resources = false;
 
@@ -3193,6 +3206,9 @@ obtainAdsFromCollector (
 				// ad into our list as-is
 				scheddAds.Insert(ad);
 			}
+		} else if(!strcmp(GetMyTypeName(*ad),SCHEDD_ADTYPE)) {
+			classad_shared_ptr<ClassAd> ad_ptr(ad);
+			tmpDaemonAds.push_back(ad_ptr);
 		}
         free(remoteHost);
         remoteHost = NULL;
@@ -3211,6 +3227,30 @@ obtainAdsFromCollector (
 		scheddAds.Open();
 		while( (ad=scheddAds.Next()) ) {
 			allAds.Insert(ad);
+		}
+	}
+
+	scheddAds.Open();
+	while ( (ad = scheddAds.Next()) ) {
+		std::string submitter_ip_addr;
+		bool found_ad = false;
+		if (ad->EvaluateAttrString(ATTR_SCHEDD_IP_ADDR, submitter_ip_addr)) {
+			for (ClassAds::const_iterator it = tmpDaemonAds.begin(); it != tmpDaemonAds.end(); it++) {
+				std::string schedd_ip_addr;
+				if (!(*it)->EvaluateAttrString(ATTR_SCHEDD_IP_ADDR, schedd_ip_addr)) { continue; }
+				if (submitter_ip_addr == schedd_ip_addr) {
+					daemonAds.push_back( *it );
+					found_ad = true;
+					break;
+				}
+			}
+		}
+		if (!found_ad) {
+			std::string submitter_name; ad->EvaluateAttrString(ATTR_NAME, submitter_name);
+			std::string schedd_name; ad->EvaluateAttrString(ATTR_SCHEDD_NAME, schedd_name);
+			dprintf(D_ALWAYS, "Unable to find a schedd ad for submitter %s from %s", submitter_name.c_str(), schedd_name.c_str());
+			classad_shared_ptr<ClassAd> empty_ad(new ClassAd());
+			daemonAds.push_back(empty_ad);
 		}
 	}
 
@@ -3323,7 +3363,8 @@ Matchmaker::MakeClaimIdHash(ClassAdList &startdPvtAdList, ClaimIdHash &claimIds)
 }
 
 int Matchmaker::
-negotiate(char const* groupName, char const *scheddName, const ClassAd *scheddAd, double priority,
+negotiate(char const* groupName, char const *scheddName, const ClassAd &daemonAd,
+		   const ClassAd *scheddAd, double priority,
 		   double submitterLimit, double submitterLimitUnclaimed,
 		   ClassAdListDoesNotDeleteAds &startdAds, ClaimIdHash &claimIds, 
 		   bool ignore_schedd_limit, time_t deadline,
@@ -3660,7 +3701,7 @@ negotiate(char const* groupName, char const *scheddName, const ClassAd *scheddAd
 		{
             remoteUser = "";
 			// 2e(i).  find a compatible offer
-			offer=matchmakingAlgorithm(scheddName, scheddAddr.Value(), request,
+			offer=matchmakingAlgorithm(scheddName, scheddAddr.Value(), daemonAd, request,
                                              startdAds, priority,
                                              limitUsed, limitUsedUnclaimed, 
                                              submitterLimit, submitterLimitUnclaimed,
@@ -3914,7 +3955,8 @@ schedd, thanks to CCB.  It _is_ suitable for use as a unique identifier, for
 display to the user, or for calls to sockCache->invalidateSock.
 */
 ClassAd *Matchmaker::
-matchmakingAlgorithm(const char *scheddName, const char *scheddAddr, ClassAd &request,
+matchmakingAlgorithm(const char *scheddName, const char *scheddAddr, const ClassAd &scheddAd,
+					 ClassAd &request,
 					 ClassAdListDoesNotDeleteAds &startdAds,
 					 double preemptPrio,
 					 double limitUsed, double limitUsedUnclaimed,
@@ -4121,6 +4163,12 @@ matchmakingAlgorithm(const char *scheddName, const char *scheddAddr, ClassAd &re
 		if( !is_a_match ) {
 				// they don't match; continue
 			continue;
+		}
+
+		// Test to see if there's sufficient bandwidth
+		bool is_a_network_match = IsANetworkMatch(request, *candidate, scheddAd);
+		if( !is_a_network_match ) {
+			rejForNetwork++;
 		}
 
 		candidatePreemptState = NO_PREEMPTION;
@@ -5703,4 +5751,144 @@ Matchmaker::calculate_subtree_usage(GroupEntry *group) {
 }
 
 GCC_DIAG_ON(float-equal)
+
+class TemporaryMatchAd : public classad::MatchClassAd
+{
+public:
+	TemporaryMatchAd(ClassAd &lad, ClassAd &rad) : MatchClassAd(&lad, &rad)
+	{
+		if ( !compat_classad::ClassAd::m_strictEvaluation ) {
+			lad.alternateScope = &rad;
+			rad.alternateScope = &lad;
+		}
+	}
+
+	virtual ~TemporaryMatchAd()
+	{
+		classad::ClassAd *ad = RemoveLeftAd();
+		ad->alternateScope = NULL;
+		ad = RemoveRightAd();
+		ad->alternateScope = NULL;
+	}
+};
+
+class ScopeGuard
+{
+public:
+	ScopeGuard(classad::ExprTree &expr, const classad::ClassAd *scope_ptr)
+	  : m_orig(expr.GetParentScope()), m_expr(expr), m_new(scope_ptr)
+	{
+		if (m_new) m_expr.SetParentScope(scope_ptr);
+	}
+	~ScopeGuard()
+	{
+		if (m_new) m_expr.SetParentScope(m_orig);
+	}
+
+private:
+	const classad::ClassAd *m_orig;
+	classad::ExprTree &m_expr;
+	const classad::ClassAd *m_new;
+};
+
+bool
+Matchmaker::EstimateNetworkBandwidth(const classad::ClassAd &scheddAd, const classad::ClassAd &machineAd, long &bandwidth_down_mbps, long &bandwidth_up_mbps)
+{
+	// TODO: In the future, use Network ads to estimate
+	classad::Value val;
+	classad_shared_ptr<classad::ExprList> list;
+	bandwidth_down_mbps = -1;
+	bandwidth_up_mbps = -1;
+	long tmp_bandwidth_down_mbps, tmp_bandwidth_up_mbps;
+	if (scheddAd.EvaluateAttr("NetworkAds", val) && val.IsSListValue(list)) {
+		for (classad::ExprList::const_iterator it = list->begin(); it != list->end(); it++) {
+			if (!(*it)->isClassad()) { continue; }
+			TemporaryMatchAd match_ad(*static_cast<ClassAd*>(*it), const_cast<classad::ClassAd&>(machineAd));
+			if (!match_ad.leftMatchesRight()) {continue;}
+			classad::ClassAd *network_ad = match_ad.GetLeftContext();
+			if (network_ad->EvaluateAttrNumber("BandwidthDownMbps", tmp_bandwidth_down_mbps) )
+			{
+				if ( (bandwidth_down_mbps == -1) || (bandwidth_down_mbps > tmp_bandwidth_down_mbps) ) {
+					bandwidth_down_mbps = tmp_bandwidth_down_mbps;
+				}
+			}
+			if (network_ad->EvaluateAttrNumber("BandwidthUpMbps", tmp_bandwidth_up_mbps) )
+			{
+				if ( (bandwidth_up_mbps == -1) || (bandwidth_up_mbps > tmp_bandwidth_up_mbps) ) {
+					bandwidth_up_mbps = tmp_bandwidth_up_mbps;
+				}
+			}
+		}
+	}
+	if (machineAd.EvaluateAttr("NetworkAds", val) && val.IsSListValue(list)) {
+		for (classad::ExprList::const_iterator it = list->begin(); it != list->end(); it++) {
+			if (!(*it)->isClassad()) { continue; }
+			TemporaryMatchAd match_ad(*static_cast<ClassAd*>(*it), const_cast<classad::ClassAd&>(scheddAd));
+			if (!match_ad.leftMatchesRight()) {continue;}
+			classad::ClassAd *network_ad = match_ad.GetLeftContext();
+			if (network_ad->EvaluateAttrNumber("BandwidthDownMbps", tmp_bandwidth_down_mbps) )
+			{
+				if ( (bandwidth_down_mbps == -1) || (bandwidth_down_mbps > tmp_bandwidth_down_mbps) ) {
+					bandwidth_down_mbps = tmp_bandwidth_down_mbps;
+				}
+			}
+			if (network_ad->EvaluateAttrNumber("BandwidthUpMbps", tmp_bandwidth_up_mbps) )
+			{
+				if ( (bandwidth_up_mbps == -1) || (bandwidth_up_mbps > tmp_bandwidth_up_mbps) ) {
+					bandwidth_up_mbps = tmp_bandwidth_up_mbps;
+				}
+			}
+		}
+	}
+	return (bandwidth_up_mbps >= 0) && (bandwidth_down_mbps >= 0);
+}
+
+bool
+Matchmaker::IsANetworkMatch(classad::ClassAd &jobAd, classad::ClassAd &machineAd, const classad::ClassAd &scheddAd)
+{
+	TemporaryMatchAd match_ad(jobAd, machineAd);
+
+	classad::ExprTree *expr = scheddAd.Lookup(ATTR_TRANSFER_QUEUE_USER_EXPR);
+	if (!expr) {
+		dprintf(D_FULLDEBUG, "Unable to determine the transfer queue expression from the schedd ad.\n");
+		return true;
+	}
+        classad::ClassAd *ad_for_eval = match_ad.GetLeftContext();
+	ScopeGuard scope(*expr, ad_for_eval);
+	std::string transfer_queue;
+	classad::Value v;
+	if (!expr->Evaluate(v) || !v.IsStringValue(transfer_queue)) {
+		dprintf(D_FULLDEBUG, "Unable to evaluate the transfer queue expression to a string.\n");
+		return true;
+	}
+
+	long mb_for_download, mb_for_upload;
+	if (!scheddAd.EvaluateAttrNumber(transfer_queue + "FileTransferMBWaitingToDownload", mb_for_download))
+	{
+		dprintf(D_FULLDEBUG, "Unable to determine MB waiting to download for transfer queue %s.\n", transfer_queue.c_str());
+		return true;
+	}
+	if (!scheddAd.EvaluateAttrNumber(transfer_queue + "FileTransferMBWaitingToUpload", mb_for_upload))
+	{
+		dprintf(D_FULLDEBUG, "Unable to determine MB waiting to upload for transfer queue %s.\n", transfer_queue.c_str());
+		return true;
+	}
+	long bandwidth_down_mbps, bandwidth_up_mbps;
+	if (!EstimateNetworkBandwidth(scheddAd, machineAd, bandwidth_down_mbps, bandwidth_up_mbps))
+	{
+		bandwidth_down_mbps = param_integer("NEGOTIATOR_ESTIMATED_BANDWIDTH_DOWN_MBPS", 1000);
+		bandwidth_up_mbps = param_integer("NEGOTIATOR_ESTIMATED_BANDWIDTH_UP_MBPS", 1000);
+		dprintf(D_FULLDEBUG, "Unable to estimate network bandwidth; using defaults of %ld mbps down / %ld mbps up.\n", bandwidth_down_mbps, bandwidth_up_mbps);
+	}
+	long max_wait = param_integer("NEGOTIATOR_MAX_ESTIMATED_NETWORK_WAIT", 600);
+	if (max_wait < (mb_for_download * 8 / bandwidth_down_mbps)) {
+		dprintf(D_FULLDEBUG, "Rejecting match due to insufficient download bandwidth\n");
+		return false;
+	}
+	if (max_wait < (mb_for_upload * 8 / bandwidth_up_mbps)) {
+		dprintf(D_FULLDEBUG, "Rejecting match due to insufficient upload bandwidth\n");
+		return false;
+	}
+	return true;
+}
 
