@@ -209,9 +209,6 @@ class Matchmaker : public Service
                                       double submitterLimit, double submitterLimitUnclaimed, 
                                       double pieLeft, bool only_for_startdrank);
 
-		bool IsANetworkMatch(classad::ClassAd &request, classad::ClassAd &candidate, const classad::ClassAd &scheddAd);
-		bool EstimateNetworkBandwidth(const classad::ClassAd &scheddAd, const classad::ClassAd &machineAd, long &bandwidth_down_mbps, long &bandwidth_up_mbps);
-
 		int matchmakingProtocol(ClassAd &request, ClassAd *offer, 
 						ClaimIdHash &claimIds, Sock *sock,
 						const char* scheddName, const char* scheddAddr);
