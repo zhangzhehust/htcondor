@@ -20,5 +20,16 @@
 bool
 IsANetworkMatch(classad::ClassAd &jobAd, classad::ClassAd &machineAd, const classad::ClassAd &scheddAd);
 
+/*
+ * This function takes link speed information from the system network devices (if available) and
+ * adds the informatino to the given ClassAd.
+ *
+ * The purpose is to provide a reasonable default for network bandwidth limits.  More realistic
+ * estimates can be provided by external services.
+ *
+ */
+bool
+PopulateDefaultNetworkAd(classad::ClassAd &ad);
+
 #endif /*__NETWORK_MATCHING_H_*/
 

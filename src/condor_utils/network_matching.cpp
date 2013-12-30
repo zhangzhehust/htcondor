@@ -6,6 +6,7 @@
 #include "condor_attributes.h"
 #include "condor_debug.h"
 #include "condor_config.h"
+#include "../condor_sysapi/sysapi.h"
 
 /*
  * A slight twist on classad's MatchClassAd.
@@ -152,11 +153,11 @@ IsANetworkMatch(classad::ClassAd &jobAd, classad::ClassAd &machineAd, const clas
 	long bandwidth_down_mbps, bandwidth_up_mbps;
 	if (!EstimateNetworkBandwidth(scheddAd, machineAd, bandwidth_down_mbps, bandwidth_up_mbps))
 	{
-		bandwidth_down_mbps = param_integer("NEGOTIATOR_ESTIMATED_BANDWIDTH_DOWN_MBPS", 1000);
-		bandwidth_up_mbps = param_integer("NEGOTIATOR_ESTIMATED_BANDWIDTH_UP_MBPS", 1000);
+		bandwidth_down_mbps = param_integer("ESTIMATED_BANDWIDTH_DOWN_MBPS", 1000);
+		bandwidth_up_mbps = param_integer("ESTIMATED_BANDWIDTH_UP_MBPS", 1000);
 		dprintf(D_FULLDEBUG, "Unable to estimate network bandwidth; using defaults of %ld mbps down / %ld mbps up.\n", bandwidth_down_mbps, bandwidth_up_mbps);
 	}
-	long max_wait = param_integer("NEGOTIATOR_MAX_ESTIMATED_NETWORK_WAIT", 600);
+	long max_wait = param_integer("MAX_ESTIMATED_NETWORK_WAIT", 600);
 	long est_download_wait = mb_for_download * 8 / bandwidth_down_mbps;
 	long est_upload_wait = mb_for_upload * 8 / bandwidth_up_mbps;
 	if (max_wait < est_download_wait) {
@@ -168,6 +169,31 @@ IsANetworkMatch(classad::ClassAd &jobAd, classad::ClassAd &machineAd, const clas
 		return false;
 	}
 	dprintf(D_FULLDEBUG, "Match has sufficient bandwidth.  Estimated bandwidth is %ld Mbps down / %ld Mbps up.  There are %ld and %ld MB in queue %s, for an estimated wait time of %lds for downloads and %lds for uploads, respectively.\n", bandwidth_down_mbps, bandwidth_up_mbps, mb_for_download, mb_for_upload, transfer_queue.c_str(), est_download_wait, est_upload_wait);
+	return true;
+}
+
+bool PopulateDefaultNetworkAd(classad::ClassAd &ad)
+{
+	std::vector<NetworkDeviceInfo> devices;
+	if (!sysapi_get_network_device_info(devices))
+	{
+		dprintf(D_ALWAYS, "Unable to determine local network devices\n");
+		return false;
+	}
+	std::vector<NetworkDeviceInfo>::const_iterator it;
+	int min_speed = -1;
+	for (it = devices.begin(); it != devices.end(); it++)
+	{
+		if (strcmp(it->name(), "lo")) { continue; }
+		unsigned speed = it->link_speed_mbps();
+		if (!speed) { continue; }
+		if ( (min_speed == -1) || (speed < min_speed)) { min_speed = speed; }
+	}
+	unsigned up_speed = param_integer("ESTIMATED_BANDWIDTH_UP_MBPS", 0);
+	unsigned down_speed = param_integer("ESTIMATED_BANDWIDTH_DOWN_MBPS", 0);
+	ad.InsertAttr("BandwidthUpMbps", static_cast<int>((up_speed > 0) ? up_speed : ((min_speed > 0) ? min_speed: 1000)));
+	ad.InsertAttr("BandwidthDownMbps", static_cast<int>((down_speed > 0) ? down_speed : ((min_speed > 0) ? min_speed: 1000)));
+
 	return true;
 }
 

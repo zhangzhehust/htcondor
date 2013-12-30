@@ -204,13 +204,35 @@ bool sysapi_get_network_device_info_raw(std::vector<NetworkDeviceInfo> &devices)
 			condor_sockaddr addr(&ifr->ifr_addr);
 			ip = addr.to_ip_string(ip_buf, INET6_ADDRSTRLEN);
 		}
+		// NOTE: I'm not sure this logic is correct - a device's link status (up/down) and
+		// assigned address are not necessarily related in Linux.
+		// Of course, in >99% of systems, these are going to be tied together so we'll leave as-is.
 		if( ip ) {
 			bool is_up = true;
 			NetworkDeviceInfo inf(name,ip,is_up);
+#if defined(SIOCETHTOOL)
+			struct ethtool_cmd edata;
+			ifr.ifr_data = &edata;
+			edata.cmd = ETHTOOL_GSET;
+			if (ioctl(sock, SIOCETHTOOL, &ifr) < 0) {
+				if (!strcmp(name, "lo")) {
+					dprintf(D_FULLDEBUG, "Unable to get link speed for %s (errno=%d, %s)\n", name, errno, strerror(errno));
+				}
+			} else {
+				inf.set_link_speed_mbps(edata.speed);
+				dprintf(D_FULLDEBUG, "Device %s is UP with IP %s and link speed", name);
+			}
+#else
+			dprintf(D_FULLDEBUG, "Device %s is UP with IP %s.\n", name, ip);
+#endif
 			devices.push_back(inf);
+		} else {
+			dprintf(D_FULLDEBUG, "Device %s is DOWN.\n", name);
 		}
 	}
 	free( ifc.ifc_req );
+
+	close(sock);
 
 	return true;
 }

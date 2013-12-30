@@ -184,6 +184,7 @@ public:
 	NetworkDeviceInfo(char const *the_name,char const *the_ip, bool the_up):
 		m_name(the_name),
 		m_ip(the_ip),
+		m_link_speed_mbps(0),
 		m_up(the_up)
 	{
 	}
@@ -191,17 +192,21 @@ public:
 	NetworkDeviceInfo(NetworkDeviceInfo const &other):
 		m_name(other.m_name),
 		m_ip(other.m_ip),
+		m_link_speed_mbps(other.m_link_speed_mbps),
 		m_up(other.m_up)
 	{
 	}
 
-	char const *name() { return m_name.c_str(); }
-	char const *IP() { return m_ip.c_str(); }
+	char const *name() const { return m_name.c_str(); }
+	char const *IP() const { return m_ip.c_str(); }
 	bool is_up() const { return m_up; }
+	unsigned set_link_speed_mbps(unsigned new_speed) { unsigned orig=m_link_speed_mbps; m_link_speed_mbps=new_speed; return orig; }
+	unsigned link_speed_mbps() const { return m_link_speed_mbps; }
 
 private:
 	std::string m_name;
 	std::string m_ip;
+	unsigned m_link_speed_mbps;
 	bool m_up;
 };
 
