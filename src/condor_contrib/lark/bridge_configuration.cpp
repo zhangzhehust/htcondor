@@ -193,66 +193,10 @@ BridgeConfiguration::Setup() {
 		return 1;
 	}
 
-	if (pipe2(m_p2c, O_CLOEXEC)) {
+	if (pipe2(m_p2c, O_CLOEXEC) || pipe2(m_c2p, O_CLOEXEC)) {
 		dprintf(D_ALWAYS, "Failed to create bridge synchronization pipe (errno=%d, %s).\n", errno, strerror(errno));
 		return 1;
 	}
-
-	AddressSelection & address = GetAddressSelection();
-	if (address.Setup())
-	{
-		dprintf(D_ALWAYS, "Failed to get IP address setup.\n");
-		return 1;
-	}
-
-	int fd2 = open("/proc/sys/net/bridge/bridge-nf-call-iptables", O_RDWR);
-	if (fd2 != -1)
-	{
-		const char one[2] = "1";
-		if (full_write(fd2, one, 1) != 1)
-		{
-			dprintf(D_ALWAYS, "Failed to enable IPTables filtering for bridge.\n");
-		}
-	}
-	std::string internal_addr;
-	if (!m_ad->EvaluateAttrString(ATTR_INTERNAL_ADDRESS_IPV4, internal_addr))
-	{
-		dprintf(D_ALWAYS, "No IPV4 address found.\n");
-		return 1;
-	}
-	{
-	ArgList args;
-	args.AppendArg("iptables");
-	args.AppendArg("-I");
-	args.AppendArg("FORWARD");
-	args.AppendArg("-m");
-	args.AppendArg("physdev");
-	args.AppendArg("--physdev-is-bridged");
-	args.AppendArg("-s");
-	args.AppendArg(internal_addr);
-	args.AppendArg("-g");
-	args.AppendArg(chain_name);
-	RUN_ARGS_AND_LOG(BridgeConfiguration::Setup, iptables_established_connections)
-	}
-	{
-	ArgList args;
-	args.AppendArg("iptables");
-	args.AppendArg("-I");
-	args.AppendArg("FORWARD");
-	args.AppendArg("-m");
-	args.AppendArg("physdev");
-	args.AppendArg("--physdev-is-bridged");
-	args.AppendArg("-d");
-	args.AppendArg(internal_addr);
-	args.AppendArg("-g");
-	args.AppendArg(chain_name);
-	RUN_ARGS_AND_LOG(BridgeConfiguration::Setup, iptables_established_connections)
-	}
-
-	classad::PrettyPrint pp;
-	std::string ad_str;
-	pp.Unparse(ad_str, m_ad.get());
-	dprintf(D_FULLDEBUG, "After bridge setup, machine classad: \n%s\n", ad_str.c_str());
 
 	return 0;
 }
@@ -261,6 +205,7 @@ int
 BridgeConfiguration::SetupPostForkParent()
 {
 	close(m_p2c[0]); m_p2c[0] = -1;
+	close(m_c2p[1]); m_c2p[1] = -1;
 
 	std::string external_device;
 	if (!m_ad->EvaluateAttrString(ATTR_EXTERNAL_INTERFACE, external_device)) {
@@ -337,6 +282,62 @@ BridgeConfiguration::SetupPostForkParent()
             }
         }
     }
+	
+	while (((err = read(m_c2p[0], &go, 1)) < 0) && (errno == EINTR)) {}
+	if (err < 0) {
+		dprintf(D_ALWAYS, "Error when waiting on child (errno=%d, %s).\n", errno, strerror(errno));
+		return errno;
+	}
+	
+	int fd2 = open("/proc/sys/net/bridge/bridge-nf-call-iptables", O_RDWR);
+	if (fd2 != -1)
+	{
+		const char one[2] = "1";
+		if (full_write(fd2, one, 1) != 1)
+		{
+			dprintf(D_ALWAYS, "Failed to enable IPTables filtering for bridge.\n");
+		}
+	}
+	std::string internal_addr;
+	if (!m_ad->EvaluateAttrString(ATTR_INTERNAL_ADDRESS_IPV4, internal_addr))
+	{
+		dprintf(D_ALWAYS, "No IPV4 address found.\n");
+		return 1;
+	}
+	{
+	ArgList args;
+	args.AppendArg("iptables");
+	args.AppendArg("-I");
+	args.AppendArg("FORWARD");
+	args.AppendArg("-m");
+	args.AppendArg("physdev");
+	args.AppendArg("--physdev-is-bridged");
+	args.AppendArg("-s");
+	args.AppendArg(internal_addr);
+	args.AppendArg("-g");
+	args.AppendArg(chain_name);
+	RUN_ARGS_AND_LOG(BridgeConfiguration::Setup, iptables_established_connections)
+	}
+	{
+	ArgList args;
+	args.AppendArg("iptables");
+	args.AppendArg("-I");
+	args.AppendArg("FORWARD");
+	args.AppendArg("-m");
+	args.AppendArg("physdev");
+	args.AppendArg("--physdev-is-bridged");
+	args.AppendArg("-d");
+	args.AppendArg(internal_addr);
+	args.AppendArg("-g");
+	args.AppendArg(chain_name);
+	RUN_ARGS_AND_LOG(BridgeConfiguration::Setup, iptables_established_connections)
+	}
+
+	classad::PrettyPrint pp;
+	std::string ad_str;
+	pp.Unparse(ad_str, m_ad.get());
+	dprintf(D_FULLDEBUG, "After bridge setup, machine classad: \n%s\n", ad_str.c_str());
+	
 	return 0;
 }
 
@@ -368,6 +369,7 @@ BridgeConfiguration::SetupPostForkChild()
 	}
 
 	close(m_p2c[1]);
+	close(m_c2p[0]);
 	int err;
 	char go;
 	while (((err = read(m_p2c[0], &go, 1)) < 0) && (errno == EINTR)) {}
@@ -377,6 +379,17 @@ BridgeConfiguration::SetupPostForkChild()
 	}
 
 	AddressSelection & address = GetAddressSelection();
+	if (address.Setup())
+	{
+		dprintf(D_ALWAYS, "Failed to get IP address setup.\n");
+		return 1;
+	}
+
+	while (((err = write(m_c2p[1], &go, 1)) < 0) && (errno == EINTR)) {}
+	if (err < 0) {
+		dprintf(D_ALWAYS, "Error writing to parent for inserting iptables rule sync (errno=%d, %s).\n", errno, strerror(errno));
+		return errno;
+	}
 	address.SetupPostFork();
 
 	GratuitousArp(internal_device);

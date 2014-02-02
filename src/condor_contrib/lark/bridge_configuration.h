@@ -28,6 +28,7 @@ private:
 
 	classad_shared_ptr<classad::ClassAd> m_ad;
 	int m_p2c[2];
+	int m_c2p[2];
 	int m_has_default_route;
 
 	struct GratuitousArpInfo

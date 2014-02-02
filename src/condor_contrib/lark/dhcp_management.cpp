@@ -559,7 +559,7 @@ int
 dhcp_query(classad::ClassAd &machine_ad)
 {
 	std::string device_name;
-	if (!machine_ad.EvaluateAttrString(ATTR_BRIDGE_NAME, device_name)) {
+	if (!machine_ad.EvaluateAttrString(ATTR_INTERNAL_INTERFACE, device_name)) {
 		device_name = "";
 	}
     dprintf(D_FULLDEBUG, "The device that the dhcp socket binds on to is: %s\n", device_name.c_str());
