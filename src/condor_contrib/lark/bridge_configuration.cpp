@@ -304,6 +304,12 @@ BridgeConfiguration::SetupPostForkParent()
 		dprintf(D_ALWAYS, "No IPV4 address found.\n");
 		return 1;
 	}
+    std::string chain_name;
+	if(!m_ad->EvaluateAttrString(ATTR_IPTABLE_NAME, chain_name)) {
+		dprintf(D_ALWAYS, "Missing required ClassAd attribute " ATTR_IPTABLE_NAME "\n");
+        return 1;
+	}
+    
 	{
 	ArgList args;
 	args.AppendArg("iptables");
@@ -402,6 +408,8 @@ BridgeConfiguration::Cleanup() {
 
 	if (m_p2c[0] >= 0) close(m_p2c[0]);
 	if (m_p2c[1] >= 0) close(m_p2c[1]);
+	if (m_c2p[0] >= 0) close(m_c2p[0]);
+	if (m_c2p[0] >= 0) close(m_c2p[0]);
 
 	dprintf(D_FULLDEBUG, "Cleaning up network bridge configuration.\n");
 	AddressSelection & address = GetAddressSelection();

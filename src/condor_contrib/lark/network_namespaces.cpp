@@ -378,26 +378,11 @@ int NetworkNamespaceManager::PostForkChild() {
 	// This is why we saved the IPv4 address in m_internal_address_str instead of just
 	// recreating it from m_internal_address
 	int sock;
-	dprintf(D_FULLDEBUG, "Child proceeding to configure networking for address %s.\n", m_internal_address_str.c_str());
 	if ((sock = create_socket()) < 0) {
 		dprintf(D_ALWAYS, "Unable to create socket to talk to kernel for child.\n");
 		rc = 1;
 		goto failed_socket;
 	}
-	// TODO: This hardcodes the prefix to 24; however, at least in the DHCP case, we can
-	// better determine the correct prefix.
-	if (add_address(sock, m_internal_address_str.c_str(), 24, m_internal_pipe.c_str())) {
-		dprintf(D_ALWAYS, "Unable to add address %s to %s.\n", m_internal_address_str.c_str(), m_internal_pipe.c_str());
-		rc = 2;
-		goto finalize_child;
-	}
-	dprintf(D_FULLDEBUG, "Added address %s to child interface.\n", m_internal_address_str.c_str());
-	// This doesn't seem to be necessary if you provide a non-/32 netmask when creating the device.
-	/*if (add_local_route(sock, m_internal_address_str.c_str(), m_internal_pipe.c_str(), 24)) {
-		dprintf(D_ALWAYS, "Unable to add local route via %s\n", m_internal_address_str.c_str());
-		rc = 4;
-		goto finalize_child;
-	}*/
 	if (set_status(sock, m_internal_pipe.c_str(), IFF_UP)) {
 		dprintf(D_ALWAYS, "Unable to bring up interface %s.\n", m_internal_pipe.c_str());
 		rc = 3;
@@ -413,6 +398,21 @@ int NetworkNamespaceManager::PostForkChild() {
 		rc = 6;
 		goto finalize_child;
 	}
+	dprintf(D_FULLDEBUG, "Child proceeding to configure networking for address %s.\n", m_internal_address_str.c_str());
+	// TODO: This hardcodes the prefix to 24; however, at least in the DHCP case, we can
+	// better determine the correct prefix.
+	if (add_address(sock, m_internal_address_str.c_str(), 24, m_internal_pipe.c_str())) {
+		dprintf(D_ALWAYS, "Unable to add address %s to %s.\n", m_internal_address_str.c_str(), m_internal_pipe.c_str());
+		rc = 2;
+		goto finalize_child;
+	}
+	dprintf(D_FULLDEBUG, "Added address %s to child interface.\n", m_internal_address_str.c_str());
+	// This doesn't seem to be necessary if you provide a non-/32 netmask when creating the device.
+	/*if (add_local_route(sock, m_internal_address_str.c_str(), m_internal_pipe.c_str(), 24)) {
+		dprintf(D_ALWAYS, "Unable to add local route via %s\n", m_internal_address_str.c_str());
+		rc = 4;
+		goto finalize_child;
+	}*/
 
 	if (set_status(sock, m_internal_pipe.c_str(), IFF_UP)) {
 		dprintf(D_ALWAYS, "Unable to bring up interface %s post-config.\n", m_internal_pipe.c_str());
