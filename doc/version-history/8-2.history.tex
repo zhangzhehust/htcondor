@@ -33,7 +33,21 @@ The details of each version are described below.
 
 \begin{itemize}
 
-\item None.
+\item The new configuration variable 
+\Macro{RUN\_FILETRANSFER\_PLUGINS\_WITH\_ROOT} permits file transfer
+plug-ins to run with \Login{root} privilege,
+when HTCondor daemons are run as \Login{root},
+and when set to the non-default value of \Expr{True}.
+\Ticket{4561}
+
+\item The new configuration variable \Macro{NETWORK\_HOSTNAME} sets
+the host name that HTCondor uses to identify the local machine.
+If \MacroNI{NETWORK\_HOSTNAME} is not set, 
+then HTCondor uses the \Procedure{gethostname} function to determine 
+the machine's host name.
+This variable is useful if a machine has multiple network interfaces
+with different host names.
+\Ticket{4570}
 
 \end{itemize}
 
@@ -41,12 +55,15 @@ The details of each version are described below.
 
 \begin{itemize}
 
-\item Using \condor{compile} on programs which call posix\_memalign()
-will now work.
+\item Fixed bugs prohibiting start RANK from preemption dynamic slots.
+\Ticket{4580}
+
+\item Using \Condor{compile} on programs which call \Procedure{posix\_memalign}
+no longer causes a link error.
 \Ticket{4486}
 
 \item EC2 grid universe jobs which use the X.509 authentication method will
-no longer crash if \Env{USER} is not set.
+no longer crash if environment variable \Env{USER} is not set.
 \Ticket{4540}
 
 \item Fixed a rare memory leak. 
@@ -55,8 +72,58 @@ but configuration variables \MacroNI{NETWORK\_INTERFACE}
 and \MacroNI{COLLECTOR\_HOST} were set to IPv6 addresses.
 \Ticket{4502}
 
-\item Fixed: \condor{qsub} mishandled setting a memory request with "-l mem=2048MB" or similar.
+\item Fixed a bug in which \Condor{qsub} mishandled setting a memory request 
+with a command line argument similar to \Opt{-l mem=2048MB}.
 \Ticket{4549}
+
+\item Fixed a bug that caused the \Condor{gridmanager} to fail to talk
+to the \Condor{schedd} if the user's account was in a Windows domain.
+\Ticket{4568}
+
+\item On Windows platforms, users listed in the \Macro{QUEUE\_SUPER\_USERS} 
+configuration variable are now checked in a case-insensitive way,
+since user names are case-insensitive on Windows.
+\Ticket{4579}
+
+\item Fixed a bug that could prevent the \Condor{schedd} job queue log 
+from rotating on Windows platforms.
+\Ticket{4548}
+
+\item Fixed a bug that caused all HTCondor daemons to leak 
+a small amount of memory upon reconfiguration.
+\Ticket{4582}
+
+\item Fixed a bug that caused \Condor{config\_val} \Opt{-verbose} to sometimes append incorrect meta-knob
+information to the file and line number information for a configuration variable.
+\Ticket{4559}
+
+\item Fixed a bug that sometimes prevented adding a \File{.txt} file name
+extension to the log file name of an HTCondor daemon on Windows platforms.
+\Ticket{4571}
+
+\item Fixed a bug that caused \Condor{dagman} to core dump if
+\Macro{DAGMAN\_ALWAYS\_USE\_NODE\_LOG} is set to \Expr{False} and
+\Macro{DAGMAN\_USE\_STRICT} is set to 1 or higher.
+\Ticket{4600}
+
+\item Fixed a bug that caused the DAG node status file (if one is specified)
+to have the wrong final status for a DAG that is aborted by an
+\Arg{ABORT-DAG-ON} specification.
+\Ticket{4312}
+
+\end{itemize}
+
+\noindent Known Bugs:
+
+\begin{itemize}
+
+\item On Windows platforms only, issuing \Condor{rm} on a 
+\Condor{dagman} job does not work correctly.
+The \Condor{dagman} process is immediately killed,
+and it does not write a Rescue DAG or remove its node jobs.
+Note that this bug has probably existed since DAGMan was first
+implemented on the Windows platform.
+\Ticket{4566}
 
 \end{itemize}
 

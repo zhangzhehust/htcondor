@@ -2706,10 +2706,18 @@ customization=seldom
 friendly_name=No Dns
 review=?
 
+[NETWORK_HOSTNAME]
+default=
+type=string
+reconfig=false
+customization=seldom
+friendly_name=Network Hostname
+review=?
+
 [NETWORK_INTERFACE]
 default=
 type=string
-reconfig=true
+reconfig=false
 customization=seldom
 friendly_name=Network Interface
 review=?
@@ -5714,7 +5722,6 @@ review=?
 
 [USE_SHARED_PORT]
 default=false
-win32_default=false
 version=7.5.0
 type=bool
 reconfig=true
@@ -7833,4 +7840,12 @@ default: @end
 	# cross-advertise these slot attributes in all other slots
 	STARTD_SLOT_ATTRS = $(STARTD_SLOT_ATTRS) State Activity EnteredCurrentActivity JobId GlobalJobId
 @end
+
+[RUN_FILETRANSFER_PLUGINS_WITH_ROOT]
+default=false
+type=bool
+reconfig=true
+customization=seldom
+friendly_name=Whether to invoke file transfer plugins as user or as root
+review=?
 

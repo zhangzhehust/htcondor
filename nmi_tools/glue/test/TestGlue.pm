@@ -22,12 +22,16 @@ use strict;
 use warnings;
 use Cwd;
 use File::Spec;
-#use CondorTest;
-#use CondorUtils;
+
 
 package TestGlue;
 
+use POSIX qw/strftime/;
+
+use base 'Exporter';
 use Net::Domain qw(hostfqdn);
+
+our @EXPORT = qw(out is_windows is_cygwin_perl);
 
 my $installdir = "";
 my $wininstalldir = "";
@@ -107,8 +111,7 @@ sub setup_test_environment {
         #$front_path .= ";" . File::Spec->catdir($ENV{SystemRoot}, "system32");
 
         set_env("PATH", "$front_path;$ENV{PATH};$end_path");
-
-		print "^^^^^^ Windows path set to:$ENV{PATH} ^^^^^^^^^^^^^^^^\n";
+	# print "^^^^^^ Windows path set to:$ENV{PATH} ^^^^^^^^^^^^^^^^\n";
 
         # Condor will want Win32-style paths for CONDOR_CONFIG
 		set_env("TESTS","$base_dir\\condor_tests");
@@ -915,5 +918,12 @@ sub ProcessReturn {
 	push @result, $signal;
 	return @result;
 }
+
+sub out {
+    my ($msg) = @_;
+    my $time = strftime("%H:%M:%S", localtime);
+    print "$time: $msg\n";
+}
+
 
 1;
