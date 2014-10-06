@@ -5661,11 +5661,19 @@ pid_t CreateProcessForkit::fork_exec() {
 	}
 #endif /* HAVE_CLONE */
 
+  struct timeval tv;
+  double begin_timestamp, end_timestamp;
+  gettimeofday(&tv, NULL);
+  begin_timestamp = tv.tv_sec+(tv.tv_usec/1000000.0);
         // The network manager has special synchronization, regardless of clone or fork.
 	if (NetworkPluginManager::PreFork()) {
 		dprintf(D_ALWAYS, "Preparation for clone failed in the network manager.\n");
 		return -1;
 	}
+  gettimeofday(&tv, NULL);
+  end_timestamp = tv.tv_sec+(tv.tv_usec/1000000.0);
+  dprintf(D_ALWAYS, "Timestamp before PreFork is %.6lf\n", begin_timestamp);
+  dprintf(D_ALWAYS, "Timestamp after PreFork is %.6lf\n", end_timestamp);
 
 	int fork_flags = 0;
 	if (m_family_info) {
@@ -5680,12 +5688,18 @@ pid_t CreateProcessForkit::fork_exec() {
 	}
 
 	if (NetworkPluginManager::HasPlugins()) {
+    gettimeofday(&tv, NULL);
+    begin_timestamp = tv.tv_sec+(tv.tv_usec/1000000.0);
 		if ((NetworkPluginManager::PostForkParent(newpid))) {
 			kill(newpid, SIGKILL);
 			dprintf(D_ALWAYS, "Failed to alter the child (%d) network namespace in post-clone of parent.\n", newpid);
 		} else {
 			dprintf(D_FULLDEBUG, "Post-clone network namespace operation in parent successful.\n");
 		}
+    gettimeofday(&tv, NULL);
+    end_timestamp = tv.tv_sec+(tv.tv_usec/1000000.0);
+    dprintf(D_ALWAYS, "Timestamp before PostForkParent is %.6lf\n", begin_timestamp);
+    dprintf(D_ALWAYS, "Timestamp after PostForkParent is %.6lf\n", end_timestamp);
 	}
 
 	return newpid;
@@ -6048,6 +6062,10 @@ void CreateProcessForkit::exec() {
 		int net_rc;
 		// Note we call PostCloneChild *regardless* of whether we can actually set the root privs.
 		// This is because PostForkChild contains necessary synchronization primitives.
+    struct timeval tv;
+    double begin_timestamp, end_timestamp;
+    gettimeofday(&tv, NULL);
+    begin_timestamp = tv.tv_sec+(tv.tv_usec/1000000.0);
 		if ((net_rc = NetworkPluginManager::PostForkChild())) {
 			dprintf(D_ALWAYS, "Failed to finish creating network namespace in child (rc=%d)\n", net_rc);
 			writeExecError(net_rc);
@@ -6055,6 +6073,10 @@ void CreateProcessForkit::exec() {
 		} else {
 			dprintf(D_FULLDEBUG, "Child believes network namespace is completely configured.\n");
 		}
+    gettimeofday(&tv, NULL);
+    end_timestamp = tv.tv_sec+(tv.tv_usec/1000000.0);
+    dprintf(D_ALWAYS, "Timestamp before PostForkChild is %.6lf\n", begin_timestamp);
+    dprintf(D_ALWAYS, "Timestamp after PostForkChild is %.6lf\n", end_timestamp);
 	}
 
 

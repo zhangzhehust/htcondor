@@ -545,7 +545,15 @@ VanillaProc::StartJob()
 			return false;
 		}
 		dprintf(D_FULLDEBUG, "Using network namespaces with network name '%s'.\n", m_network_name.c_str());
+    double begin_timestamp, end_timestamp;
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    begin_timestamp = tv.tv_sec+(tv.tv_usec/1000000.0);
 		int rc = NetworkPluginManager::PrepareNetwork(m_network_name, *JobAd, machine_classad);
+    gettimeofday(&tv, NULL);
+    end_timestamp = tv.tv_sec+(tv.tv_usec/1000000.0);
+    dprintf(D_ALWAYS,"Timestamp before preparing network is: %.6lf\n", begin_timestamp);
+    dprintf(D_ALWAYS,"Timestamp after preparing network is: %.6lf\n", end_timestamp);
 		if (rc) {
 			dprintf(D_ALWAYS, "Failed to prepare network namespace - bailing.\n");
 			rc = NetworkPluginManager::Cleanup(m_network_name);
@@ -798,7 +806,15 @@ VanillaProc::JobReaper(int pid, int status)
             const std::string jobphase = "execution";
 			NetworkPluginManager::PerformJobAccounting(NULL, jobphase);
 			// TODO: cleanup correct namespace
+      struct timeval tv;
+      double begin_timestamp, end_timestamp;
+      gettimeofday(&tv, NULL);
+      begin_timestamp = tv.tv_sec+(tv.tv_usec/1000000.0);
 			int rc = NetworkPluginManager::Cleanup(m_network_name);
+      gettimeofday(&tv, NULL);
+      end_timestamp = tv.tv_sec+(tv.tv_usec/1000000.0);
+      dprintf(D_ALWAYS,"Timestamp before cleaning network is: %.6lf\n", begin_timestamp);
+      dprintf(D_ALWAYS,"Timestamp after cleaning network is: %.6lf\n", end_timestamp);
 			if (rc) {
 				dprintf(D_ALWAYS, "Failed to cleanup network namespace (rc=%d)\n", rc);
 			} else {
