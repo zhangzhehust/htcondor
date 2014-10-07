@@ -537,6 +537,12 @@ VanillaProc::StartJob()
  		}
 	}
 
+  double begin_timestamp_total, end_timestamp_total;
+  struct timeval tv_total;
+  gettimeofday(&tv_total, NULL);
+  begin_timestamp_total = tv_total.tv_sec+(tv_total.tv_usec/1000000.0);
+  dprintf(D_ALWAYS, "Timestamp before setting up job is %.6lf\n", begin_timestamp_total);
+
 	if (param_boolean("USE_NETWORK_NAMESPACES", false) && JobAd) {
 		dprintf(D_FULLDEBUG, "We will prepare a network namespace.\n");
 		classad_shared_ptr<classad::ClassAd> machine_classad;
@@ -822,6 +828,12 @@ VanillaProc::JobReaper(int pid, int status)
 			}
 		}
 	}
+
+  double end_timestamp_total;
+  struct timeval tv_total;
+  gettimeofday(&tv_total, NULL);
+  end_timestamp_total = tv_total.tv_sec+(tv_total.tv_usec/1000000.0);
+  dprintf(D_ALWAYS, "Timestamp after job finish is %.6lf\n", end_timestamp_total);
 
 	// If we didn't kill it ourselves, and we've using pid namespaces
 	if (!requested_exit && (m_pid_ns_init_filename.length() > 0)) {
