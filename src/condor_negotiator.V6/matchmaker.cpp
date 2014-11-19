@@ -3359,14 +3359,6 @@ obtainAdsFromCollector (
 		}
 	}
 
-	dprintf(D_ALWAYS,"  Getting startd private ads ...\n");
-	ClassAdList startdPvtAdList;
-	result = collects->query (privateQuery, startdPvtAdList);
-	if( result!=Q_OK ) {
-		dprintf(D_ALWAYS, "Couldn't fetch ads: %s\n", getStrQueryResult(result));
-		return false;
-	}
-
 	MakeClaimIdHash(startdPvtAdList,claimIds);
 
 	dprintf(D_ALWAYS, "Got ads: %d public and %lu private\n",
