@@ -246,7 +246,7 @@ _condor_set_debug_flags_ex(
 	// special case. if a single category to be passed in cat_and_flags
 	// in practice, this category is always D_ALWAYS which is set above anyway.
 	choice |= 1<<(cat_and_flags & D_CATEGORY_MASK);
-	PRAGMA_REMIND("TJ: fix this to handle more than just basic & verbose levels")
+	//PRAGMA_REMIND("TJ: fix this to handle more than just basic & verbose levels")
 	if (cat_and_flags & (D_FULLDEBUG | D_VERBOSE_MASK)) { verbose |= choice; }
 
 	// parse and merge strflags and cat_and_flags into header & choice
@@ -272,7 +272,7 @@ _condor_set_debug_flags( const char *strflags, int cat_and_flags )
 # include <sys/timeb.h>
 #endif
 
-static double _condor_debug_get_time_double()
+double _condor_debug_get_time_double()
 {
 #if defined(HAVE__FTIME)
 	struct _timeb timebuffer;
@@ -287,6 +287,7 @@ static double _condor_debug_get_time_double()
 #endif
 }
 
+#if 0 // moved to header
 _condor_auto_save_runtime::_condor_auto_save_runtime(double & store)
    : runtime(store)
 {
@@ -300,6 +301,7 @@ _condor_auto_save_runtime::~_condor_auto_save_runtime()
 {
    runtime = current_runtime();
 }
+#endif
 
 #if 0
 /*

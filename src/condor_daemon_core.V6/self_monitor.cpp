@@ -163,6 +163,16 @@ void DaemonCore::Stats::Reconfig()
        free(tmp);
     }
     SetWindowSize(this->RecentWindowMax);
+
+    std::string timespans;
+    param(timespans,"DCSTATISTICS_TIMESPANS");
+
+    std::string timespans_err;
+    if( !ParseEMAHorizonConfiguration(timespans.c_str(),ema_config,timespans_err) ) {
+        EXCEPT("Error in DCSTATISTICS_TIMESPANS=%s: %s",timespans.c_str(),timespans_err.c_str());
+    }
+
+    this->Commands.ConfigureEMAHorizons(ema_config);
 }
 
 void DaemonCore::Stats::SetWindowSize(int window)
@@ -171,6 +181,7 @@ void DaemonCore::Stats::SetWindowSize(int window)
    Pool.SetRecentMax(window, this->RecentWindowQuantum);
 }
 
+#define DC_STATS_ADD_DEF(pool,name,as)     STATS_POOL_ADD(pool, "DC", name, as)
 #define DC_STATS_ADD_RECENT(pool,name,as)  STATS_POOL_ADD_VAL_PUB_RECENT(pool, "DC", name, as) 
 #define DC_STATS_PUB_DEBUG(pool,name,as)   STATS_POOL_PUB_DEBUG(pool, "DC", name, as) 
 
@@ -201,6 +212,26 @@ void DaemonCore::Stats::Init()
    //DC_STATS_ADD_RECENT(Pool, PipeBytes,     IF_BASICPUB);
    DC_STATS_ADD_RECENT(Pool, DebugOuts,     IF_VERBOSEPUB);
    DC_STATS_ADD_RECENT(Pool, PumpCycle,     IF_VERBOSEPUB);
+   DC_STATS_ADD_DEF(Pool, Commands, IF_BASICPUB);
+
+   // insert entries that are stored in helper modules
+   //
+   extern stats_entry_probe<double> condor_fsync_runtime;
+   Pool.AddProbe("DCfsync", &condor_fsync_runtime, "DCfsync", IF_VERBOSEPUB | IF_RT_SUM);
+
+   extern stats_entry_probe<double> getaddrinfo_runtime; // count & runtime of all lookups, success and fail
+   extern stats_entry_probe<double> getaddrinfo_fast_runtime; // count & runtime of successful lookups that were faster than getaddrinfo_slow_limit
+   extern stats_entry_probe<double> getaddrinfo_slow_runtime; // count & runtime of successful lookups that were slower than getaddrinfo_slow_limit
+   extern stats_entry_probe<double> getaddrinfo_fail_runtime; // count & runtime of failed lookups
+   //extern double getaddrinfo_slow_limit;
+   //#define GAI_TAG "DNSLookup"
+   #define GAI_TAG "NameResolve"
+   Pool.AddProbe("DC" GAI_TAG,        &getaddrinfo_runtime,      "DC" GAI_TAG,        IF_VERBOSEPUB | IF_RT_SUM);
+   Pool.AddProbe("DC" GAI_TAG "Fast", &getaddrinfo_fast_runtime, "DC" GAI_TAG "Fast", IF_VERBOSEPUB | IF_RT_SUM);
+   Pool.AddProbe("DC" GAI_TAG "Slow", &getaddrinfo_slow_runtime, "DC" GAI_TAG "Slow", IF_VERBOSEPUB | IF_RT_SUM);
+   Pool.AddProbe("DC" GAI_TAG "Fail", &getaddrinfo_fail_runtime, "DC" GAI_TAG "Fail", IF_VERBOSEPUB | IF_RT_SUM);
+   #undef GAI_TAG
+
 
    // Insert additional publish entries for the XXXDebug values
    //
@@ -217,6 +248,10 @@ void DaemonCore::Stats::Init()
    //DC_STATS_PUB_DEBUG(Pool, PipeBytes,     IF_BASICPUB);
    DC_STATS_PUB_DEBUG(Pool, DebugOuts,     IF_VERBOSEPUB);
    DC_STATS_PUB_DEBUG(Pool, PumpCycle,     IF_VERBOSEPUB);
+
+
+   // clear all counters we just added to the pool
+   Pool.Clear();
 }
 
 void DaemonCore::Stats::Clear()
@@ -325,6 +360,79 @@ void DaemonCore::Stats::AddToProbe(const char * name, int64_t val)
       pstat->Add(val);
 }
 
+void DaemonCore::Stats::AddToAnyProbe(const char * name, int val)
+{
+   int units;
+   stats_entry_base* pbase = Pool.GetProbe(name, units);
+   if (pbase) {
+      switch (units) {
+         case stats_entry_recent<int>::unit: {
+            stats_entry_recent<int>* pstat = reinterpret_cast<stats_entry_recent<int>*>(pbase);
+            pstat->Add(val);
+         } break;
+
+         case stats_entry_recent<int64_t>::unit: {
+            stats_entry_recent<int64_t>* pstat = reinterpret_cast<stats_entry_recent<int64_t>*>(pbase);
+            pstat->Add(val);
+         } break;
+
+         case stats_entry_sum_ema_rate<int>::unit: {
+            stats_entry_sum_ema_rate<int>* pstat = reinterpret_cast<stats_entry_sum_ema_rate<int>*>(pbase);
+            pstat->Add(val);
+         } break;
+
+         case stats_entry_sum_ema_rate<double>::unit: {
+            stats_entry_sum_ema_rate<double>* pstat = reinterpret_cast<stats_entry_sum_ema_rate<double>*>(pbase);
+            pstat->Add(val);
+         } break;
+
+         default: {
+            dprintf(D_ALWAYS, "AddToAnyProbe(%s) add of %d failed because of a 0x%x is invalid case\n", name, val, units);
+         } break;
+      }
+   }
+}
+
+void DaemonCore::Stats::AddToSumEmaRate(const char * name, int val) {
+   stats_entry_sum_ema_rate<int>* pstat = Pool.GetProbe<stats_entry_sum_ema_rate<int> >(name);
+   if (pstat)
+      pstat->Add(val);
+}
+
+#ifdef USE_MIRON_PROBE_FOR_DC_RUNTIME_STATS
+
+double DaemonCore::Stats::AddRuntime(const char * name, double before)
+{
+   double now = UtcTime::getTimeDouble();
+   stats_entry_probe<double> * probe = Pool.GetProbe< stats_entry_probe<double> >(name);
+   if (probe)
+      probe->Add(now - before);
+   return now;
+}
+
+double DaemonCore::Stats::AddSample(const char * name, int as, double val)
+{
+   stats_entry_probe<double> * probe = Pool.GetProbe< stats_entry_probe<double> >(name);
+   if ( ! probe) {
+       MyString attr(name);
+       cleanStringForUseAsAttr(attr);
+       probe = Pool.NewProbe< stats_entry_probe<double> >(name, attr.Value(), as);
+   }
+
+   if (probe)
+      probe->Add(val);
+   return val;
+}
+
+double DaemonCore::Stats::AddRuntimeSample(const char * name, int as, double before) // returns current time.
+{
+   double now = UtcTime::getTimeDouble();
+   this->AddSample(name, as | IF_RT_SUM, now - before);
+   return now;
+}
+
+#else
+
 double DaemonCore::Stats::AddRuntime(const char * name, double before)
 {
    double now = UtcTime::getTimeDouble();
@@ -334,7 +442,7 @@ double DaemonCore::Stats::AddRuntime(const char * name, double before)
    return now;
 }
 
-stats_entry_recent<Probe> * DaemonCore::Stats::AddSample(const char * name, int as, double val)
+double DaemonCore::Stats::AddSample(const char * name, int as, double val)
 {
    stats_entry_recent<Probe> * probe = Pool.GetProbe< stats_entry_recent<Probe> >(name);
    if ( ! probe) {
@@ -350,9 +458,9 @@ stats_entry_recent<Probe> * DaemonCore::Stats::AddSample(const char * name, int 
        }
    }
 
-   if (probe) 
+   if (probe)
       probe->Add(val);
-   return probe;
+   return val;
 }
 
 double DaemonCore::Stats::AddRuntimeSample(const char * name, int as, double before) // returns current time.
@@ -361,6 +469,8 @@ double DaemonCore::Stats::AddRuntimeSample(const char * name, int as, double bef
    this->AddSample(name, as, now - before);
    return now;
 }
+
+#endif
 
 void* DaemonCore::Stats::New(const char * category, const char * name, int as)
 {
@@ -373,9 +483,49 @@ void* DaemonCore::Stats::New(const char * category, const char * name, int as)
       {
       case AS_COUNT | IS_RECENT:
          {
-         stats_entry_recent<int> * probe = 
+         stats_entry_recent<int> * probe =
          Pool.NewProbe< stats_entry_recent<int> >(name,  attr.Value(), as);
          probe->SetRecentMax(this->RecentWindowMax / this->RecentWindowQuantum);
+         ret = probe;
+         }
+         break;
+
+     case  AS_COUNT | IS_CLS_EMA:
+         {
+         stats_entry_ema<int>* probe =
+         Pool.NewProbe< stats_entry_ema<int> >(name, attr.Value(), as | stats_entry_ema<int>::PubDefault);
+         probe->ConfigureEMAHorizons(ema_config);
+         probe->Clear();
+         ret = probe;
+         }
+         break;
+
+     case  STATS_ENTRY_TYPE_DOUBLE | IS_CLS_EMA:
+         {
+         stats_entry_ema<double>* probe =
+         Pool.NewProbe< stats_entry_ema<double> >(name, attr.Value(), as | stats_entry_ema<double>::PubDefault);
+         probe->ConfigureEMAHorizons(ema_config);
+         probe->Clear();
+         ret = probe;
+         }
+         break;
+
+     case  AS_COUNT | IS_CLS_SUM_EMA_RATE:
+         {
+         stats_entry_sum_ema_rate<int>* probe =
+         Pool.NewProbe< stats_entry_sum_ema_rate<int> >(name, attr.Value(), as | stats_entry_sum_ema_rate<int>::PubDefault);
+         probe->ConfigureEMAHorizons(ema_config);
+         probe->Clear();
+         ret = probe;
+         }
+         break;
+
+     case  STATS_ENTRY_TYPE_DOUBLE | IS_CLS_SUM_EMA_RATE:
+         {
+         stats_entry_sum_ema_rate<double>* probe =
+         Pool.NewProbe< stats_entry_sum_ema_rate<double> >(name, attr.Value(), as | stats_entry_sum_ema_rate<double>::PubDefault);
+         probe->ConfigureEMAHorizons(ema_config);
+         probe->Clear();
          ret = probe;
          }
          break;
@@ -391,9 +541,21 @@ void* DaemonCore::Stats::New(const char * category, const char * name, int as)
          break;
 
       case AS_COUNT | IS_RCT:
+#ifdef USE_MIRON_PROBE_FOR_DC_RUNTIME_STATS
+         {
+         as &= ~(IS_CLASS_MASK);  // strip off IS_RTC class
+         as |= IS_CLS_PROBE | IF_RT_SUM; // and set IS_CLS_PROBE & IF_RT_SUM classes
+         stats_entry_probe<double> * probe =
+         Pool.NewProbe< stats_entry_probe<double> >(name, attr.Value(), as);
+         ret = probe;
+         }
+         break;
+#else
+          // fall through
+#endif
       case AS_RELTIME | IS_RCT:
          {
-         stats_recent_counter_timer * probe = 
+         stats_recent_counter_timer * probe =
          Pool.NewProbe<stats_recent_counter_timer>(name, attr.Value(), as);
         #if 0 // def DEBUG
          attr += "Debug";

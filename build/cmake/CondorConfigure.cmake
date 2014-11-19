@@ -77,6 +77,13 @@ if(NOT WINDOWS)
 #if(NOT WINDOWS AND NOT CONDOR_PLATFORM MATCHES "Fedora19")
 include (FindPythonLibs)
 endif(NOT WINDOWS)
+# As of cmake 2.8.8, the variable below is defined by FindPythonLibs.
+# This helps ensure we get the same version of the libraries and python
+# on systems with both python2 and python3.
+if (DEFINED PYTHONLIBS_VERSION_STRING)
+  set(PythonInterp_FIND_VERSION "${PYTHONLIBS_VERSION_STRING}")
+  set(PythonInterp_FIND_VERSION_EXACT ON)
+endif()
 include (FindPythonInterp)
 include (FindThreads)
 include (GlibcDetect)
@@ -169,14 +176,27 @@ if( NOT WINDOWS)
 	check_symbol_exists(TCP_KEEPALIVE "sys/types.h;sys/socket.h;netinet/tcp.h" HAVE_TCP_KEEPALIVE)
 	check_symbol_exists(TCP_KEEPCNT "sys/types.h;sys/socket.h;netinet/tcp.h" HAVE_TCP_KEEPCNT)
 	check_symbol_exists(TCP_KEEPINTVL, "sys/types.h;sys/socket.h;netinet/tcp.h" HAVE_TCP_KEEPINTVL)
+	if(${OS_NAME} STREQUAL "LINUX")
+		check_include_files("linux/tcp.h" HAVE_LINUX_TCP_H)
+	endif()
+	if( HAVE_LINUX_TCP_H )
+		check_symbol_exists(TCP_USER_TIMEOUT, "linux/tcp.h;sys/types.h;sys/socket.h;netinet/tcp.h" HAVE_TCP_USER_TIMEOUT)
+	else()
+		check_symbol_exists(TCP_USER_TIMEOUT, "sys/types.h;sys/socket.h;netinet/tcp.h" HAVE_TCP_USER_TIMEOUT)
+	endif()
 	check_symbol_exists(MS_PRIVATE "sys/mount.h" HAVE_MS_PRIVATE)
 	check_symbol_exists(MS_SHARED  "sys/mount.h" HAVE_MS_SHARED)
 	check_symbol_exists(MS_SLAVE  "sys/mount.h" HAVE_MS_SLAVE)
 	check_symbol_exists(MS_REC  "sys/mount.h" HAVE_MS_REC)
+	# Python also defines HAVE_EPOLL; hence, we use non-standard 'CONDOR_HAVE_EPOLL' here.
+	check_symbol_exists(epoll_create1 "sys/epoll.h" CONDOR_HAVE_EPOLL)
+	check_symbol_exists(poll "sys/poll.h" CONDOR_HAVE_POLL)
+	check_symbol_exists(fdatasync "unistd.h" HAVE_FDATASYNC)
 
 	check_function_exists("access" HAVE_ACCESS)
 	check_function_exists("clone" HAVE_CLONE)
 	check_function_exists("dirfd" HAVE_DIRFD)
+	check_function_exists("euidaccess" HAVE_EUIDACCESS)
 	check_function_exists("execl" HAVE_EXECL)
 	check_function_exists("fstat64" HAVE_FSTAT64)
 	check_function_exists("_fstati64" HAVE__FSTATI64)
@@ -567,6 +587,36 @@ if (NOT EXISTS ${EXTERNAL_STAGE})
 	file ( MAKE_DIRECTORY ${EXTERNAL_STAGE} )
 endif()
 
+# I'd like this to apply to classads build as well, so I put it
+# above the addition of the .../src/classads subdir:
+if (LINUX
+    AND PROPER 
+    AND ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")  
+    AND NOT ("${CMAKE_CXX_COMPILER_VERSION}" VERSION_LESS 4.4.6))
+
+    # I wrote a nice macro for testing linker flags, but it is useless
+    # because at least some older versions of linker ignore all '-z'
+    # args in the name of "solaris compatibility"
+    # So instead I'm enabling for GNU toolchains on RHEL-6 and newer
+
+    # note, I'm only turning these on for proper builds because
+    # non-proper external builds don't receive the necessary flags
+    # and it breaks the build
+
+    # partial relro (for all libs)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,relro")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}  -Wl,-z,relro")
+
+    # full relro and pie get turned on for daemons:
+    set(cxx_full_relro_and_pie 1)
+    # I've seen a reference to '-z bind_now', but all the
+    # versions I can find actually use just '-z now':
+    set(cxx_full_relro_arg "-Wl,-z,now")
+    # compiling everything with -fPIC is important for PIE
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
+endif()
+
+
 ###########################################
 #if (NOT MSVC11) 
 #endif()
@@ -580,18 +630,25 @@ if (WINDOWS)
     else()
       set(BOOST_DOWNLOAD_WIN boost-1.54.0-VC11-Win32.tar.gz)
     endif()
+    add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/boost/1.54.0)
+    add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/openssl/1.0.1e)
+    add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/pcre/8.33)
+    add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/krb5/1.12)
+    add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/curl/7.33.0)
+  else()
+    add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/boost/1.49.0)
+    add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/openssl/0.9.8h-p2)
+    add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/pcre/7.6)
+    add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/krb5/1.4.3-p1)
+    add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/curl/7.31.0-p1)
   endif()
   
-  add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/boost/1.54.0)
-  add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/openssl/1.0.1e)
-  add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/pcre/8.33)
-  add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/krb5/1.10)
-  add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/curl/7.33.0)
+  # DRMAA currently punted on Windows until we can figure out correct build
+  #add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/drmaa/1.6.2)
   add_subdirectory(${CONDOR_SOURCE_DIR}/src/classad)
 else ()
 
-  # DRMAA currently punted on Windows until we can figure out correct build
-  add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/drmaa/1.6)
+  add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/drmaa/1.6.2)
   add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/qpid/0.8-RC3)
   add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/boost/1.49.0)
 
@@ -608,18 +665,19 @@ else ()
 	add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/libcgroup/0.37)
 
 	# globus is an odd *beast* which requires a bit more config.
-	add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/globus/5.2.1)
+	add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/globus/5.2.5)
 	add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/blahp/1.16.5.1)
 	add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/voms/2.0.6)
-	add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/cream/1.12.1_14)
+	add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/cream/1.14.0)
 	add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/wso2/2.1.0)
+	add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/boinc/devel)
 
         if (LINUX)
           option(WITH_GANGLIA "Compiling with support for GANGLIA" ON)
         endif(LINUX)
 
 	# the following logic if for standard universe *only*
-	if (LINUX AND NOT CLIPPED AND GLIBC_VERSION AND NOT PROPER)
+	if (LINUX AND NOT CLIPPED AND GLIBC_VERSION)
 
 		add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/zlib/1.2.3)
 		add_subdirectory(${CONDOR_EXTERNAL_DIR}/bundles/glibc)
@@ -674,6 +732,12 @@ if (WANT_CONTRIB AND WITH_MANAGEMENT)
     endif()
     add_definitions( -DWANT_CONTRIB )
     add_definitions( -DWITH_MANAGEMENT )
+endif()
+
+#####################################
+# Do we want to link in the GSI libraries or dlopen() them at runtime?
+if (HAVE_EXT_GLOBUS AND LINUX AND NOT PROPER)
+	set( DLOPEN_GSI_LIBS TRUE )
 endif()
 
 message(STATUS "********* External configuration complete (dropping config.h) *********")
@@ -734,12 +798,20 @@ endif()
 ###########################################
 # order of the below elements is important, do not touch unless you know what you are doing.
 # otherwise you will break due to stub collisions.
-set (CONDOR_LIBS_STATIC "condor_utils_s;classads;${VOMS_FOUND_STATIC};${GLOBUS_FOUND_STATIC};${EXPAT_FOUND};${PCRE_FOUND};${OPENSSL_FOUND};${KRB5_FOUND};${POSTGRESQL_FOUND};${COREDUMPER_FOUND};${IOKIT_FOUND};${COREFOUNDATION_FOUND}")
-set (CONDOR_LIBS "condor_utils;${CLASSADS_FOUND};${VOMS_FOUND};${GLOBUS_FOUND};${EXPAT_FOUND};${PCRE_FOUND};${COREDUMPER_FOUND}")
-set (CONDOR_TOOL_LIBS "condor_utils;${CLASSADS_FOUND};${VOMS_FOUND};${GLOBUS_FOUND};${EXPAT_FOUND};${PCRE_FOUND};${COREDUMPER_FOUND}")
+if (DLOPEN_GSI_LIBS)
+	set (SECURITY_LIBS "")
+	set (SECURITY_LIBS_STATIC "")
+else()
+	set (SECURITY_LIBS "${VOMS_FOUND};${GLOBUS_FOUND};${EXPAT_FOUND}")
+	set (SECURITY_LIBS_STATIC "${VOMS_FOUND_STATIC};${GLOBUS_FOUND_STATIC};${EXPAT_FOUND}")
+endif()
+
+set (CONDOR_LIBS_STATIC "condor_utils_s;classads;${SECURITY_LIBS_STATIC};${PCRE_FOUND};${OPENSSL_FOUND};${KRB5_FOUND};${POSTGRESQL_FOUND};${COREDUMPER_FOUND};${IOKIT_FOUND};${COREFOUNDATION_FOUND}")
+set (CONDOR_LIBS "condor_utils;${CLASSADS_FOUND};${SECURITY_LIBS};${PCRE_FOUND};${COREDUMPER_FOUND}")
+set (CONDOR_TOOL_LIBS "condor_utils;${CLASSADS_FOUND};${SECURITY_LIBS};${PCRE_FOUND};${COREDUMPER_FOUND}")
 set (CONDOR_SCRIPT_PERMS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
 if (LINUX OR DARWIN)
-  set (CONDOR_LIBS_FOR_SHADOW "condor_utils_s;classads;${VOMS_FOUND};${GLOBUS_FOUND};${EXPAT_FOUND};${PCRE_FOUND};${OPENSSL_FOUND};${KRB5_FOUND};${POSTGRESQL_FOUND};${COREDUMPER_FOUND};${IOKIT_FOUND};${COREFOUNDATION_FOUND}")
+  set (CONDOR_LIBS_FOR_SHADOW "condor_utils_s;classads;${SECURITY_LIBS};${PCRE_FOUND};${OPENSSL_FOUND};${KRB5_FOUND};${POSTGRESQL_FOUND};${COREDUMPER_FOUND};${IOKIT_FOUND};${COREFOUNDATION_FOUND}")
   if (DARWIN)
     set (CONDOR_LIBS_FOR_SHADOW "${CONDOR_LIBS_FOR_SHADOW};resolv" )
   endif (DARWIN)
@@ -766,7 +838,7 @@ if(MSVC)
 
 	#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4251")  #
 	#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4275")  #
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4996")  # use of obsolete names for c-runtime functions
+	#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4996")  # deprecation warnings
 	#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4273")  # inconsistent dll linkage
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd6334") # inclusion warning from boost. 
 
@@ -860,10 +932,10 @@ else(MSVC)
 	endif(cxx_Wvolatile_register_var)
 
 	check_cxx_compiler_flag(-Wunused-local-typedefs cxx_Wunused_local_typedefs)
-	if (cxx_Wunused_local_typedefs)
+	if (cxx_Wunused_local_typedefs AND NOT "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" )
 		# we don't ever want the 'unused local typedefs' warning treated as an error.
 		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=unused-local-typedefs")
-	endif(cxx_Wunused_local_typedefs)
+	endif(cxx_Wunused_local_typedefs AND NOT "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
 
 	# check compiler flag not working for this flag.  
 	if (NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS "4.8")
@@ -896,8 +968,13 @@ else(MSVC)
 
 	if (LINUX)
 		set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--warn-once -Wl,--warn-common")
-		if ( "${CONDOR_PLATFORM}" STREQUAL "x86_64_Ubuntu12")
+		if ( "${LINUX_NAME}" STREQUAL "Ubuntu" )
 			set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--no-as-needed")
+		endif()
+		# Link RedHat 5 binaries with both hash styles (GNU and SYSV)
+		# so that binaries are usable on old distros such as SUSE Linux Enterprise Server 10
+		if ( ${SYSTEM_NAME} MATCHES "rhel5" )
+			set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--hash-style=both")
 		endif()
 	endif(LINUX)
 
@@ -920,7 +997,7 @@ else(MSVC)
 
 	check_cxx_compiler_flag(-shared HAVE_CC_SHARED)
 
-	if ( NOT PROPER AND ${SYS_ARCH} MATCHES "86")
+	if ( NOT CLIPPED AND ${SYS_ARCH} MATCHES "86")
 
 		if (NOT ${SYS_ARCH} MATCHES "64" )
 			add_definitions( -DI386=${SYS_ARCH} )

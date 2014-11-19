@@ -6,6 +6,8 @@
 #include <boost/python.hpp>
 #include <boost/iterator/transform_iterator.hpp>
 
+void registerFunction(boost::python::object function, boost::python::object name);
+
 struct ExprTreeHolder;
 
 struct AttrPairToFirst :
@@ -46,6 +48,11 @@ struct ClassAdWrapper : classad::ClassAd, boost::python::wrapper<classad::ClassA
     void InsertAttrObject( const std::string &attr, boost::python::object value);
 
     ExprTreeHolder LookupExpr(const std::string &attr) const;
+
+    boost::python::object Flatten(boost::python::object input) const;
+
+    bool matches(boost::python::object) const;
+    bool symmetricMatch(boost::python::object) const;
 
     std::string toRepr();
 
