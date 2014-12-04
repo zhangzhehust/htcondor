@@ -47,7 +47,7 @@ typedef struct MapEntry {
 /* FILESQL object extern */
 extern FILESQL *FILEObj;
 
-typedef std::vector<classad_shared_ptr<ClassAd> > ClassAds;
+typedef std::vector<ClassAd*> ClassAds;
 
 struct GroupEntry {
     typedef vector<int>::size_type size_type;

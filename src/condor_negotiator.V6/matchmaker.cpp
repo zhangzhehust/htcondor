@@ -1348,7 +1348,8 @@ negotiationTime ()
         scheddAds.Open();
 		ClassAds::const_iterator it = daemonAds.begin();
         while (ClassAd* ad = scheddAds.Next()) {
-			classad_shared_ptr<ClassAd> daemonAd = *(it++);
+			//classad_shared_ptr<ClassAd> daemonAd = *(it++);
+      ClassAd* daemonAd = *(it++);
             MyString tname;
             if (!ad->LookupString(ATTR_NAME, tname)) {
                 dprintf(D_ALWAYS, "group quotas: WARNING: ignoring submitter ad with no name\n");
@@ -1407,7 +1408,8 @@ negotiationTime ()
                 group->submitterAds->Open();
 				ClassAds::const_iterator it = group->daemonAds.begin();
                 while (ClassAd* ad = group->submitterAds->Next()) {
-					classad_shared_ptr<ClassAd> daemonAd = *(it++);
+					//classad_shared_ptr<ClassAd> daemonAd = *(it++);
+          ClassAd* daemonAd = *(it++);
                     hgq_root_group->submitterAds->Insert(ad);
 					hgq_root_group->daemonAds.push_back(daemonAd);
                 }
@@ -2584,7 +2586,8 @@ negotiateWithGroup ( int untrimmed_num_startds,
 		ClassAds::const_iterator it = daemonAds.begin();
 		while( (schedd = scheddAds.Next()) )
 		{
-			classad_shared_ptr<ClassAd> daemonAd = *(it++);
+			//classad_shared_ptr<ClassAd> daemonAd = *(it++);
+      ClassAd* daemonAd = *(it++);
             if (!ignore_submitter_limit && (NULL != groupName) && (accountant.GetWeightedResourcesUsed(groupName) >= groupQuota)) {
                 // If we met group quota, and if we're respecting submitter limits, halt.
                 // (output message at top of outer loop above)
@@ -3312,8 +3315,8 @@ obtainAdsFromCollector (
 				scheddAds.Insert(ad);
 			}
 		} else if(!strcmp(GetMyTypeName(*ad),SCHEDD_ADTYPE)) {
-			classad_shared_ptr<ClassAd> ad_ptr(ad);
-			tmpDaemonAds.push_back(ad_ptr);
+			//classad_shared_ptr<ClassAd> ad_ptr(ad);
+			tmpDaemonAds.push_back(ad);
 		}
         free(remoteHost);
         remoteHost = NULL;
@@ -3354,8 +3357,8 @@ obtainAdsFromCollector (
 			std::string submitter_name; ad->EvaluateAttrString(ATTR_NAME, submitter_name);
 			std::string schedd_name; ad->EvaluateAttrString(ATTR_SCHEDD_NAME, schedd_name);
 			dprintf(D_ALWAYS, "Unable to find a schedd ad for submitter %s from %s", submitter_name.c_str(), schedd_name.c_str());
-			classad_shared_ptr<ClassAd> empty_ad(new ClassAd());
-			daemonAds.push_back(empty_ad);
+			//classad_shared_ptr<ClassAd> empty_ad(new ClassAd());
+			daemonAds.push_back(new ClassAd());
 		}
 	}
 
