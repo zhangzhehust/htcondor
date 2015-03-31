@@ -130,22 +130,25 @@ IsANetworkMatch(classad::ClassAd &jobAd, classad::ClassAd &machineAd, const clas
 		dprintf(D_FULLDEBUG, "Unable to determine the transfer queue expression from the schedd ad.\n");
 		return true;
 	}
-        classad::ClassAd *ad_for_eval = match_ad.GetLeftContext();
-	ScopeGuard scope(*expr, ad_for_eval);
+  classad::ClassAd *ad_for_eval = match_ad.GetLeftContext();
+  jobAd.ChainToAd(&machineAd);
+	ScopeGuard scope(*expr, &jobAd);
 	std::string transfer_queue;
 	classad::Value v;
 	if (!expr->Evaluate(v) || !v.IsStringValue(transfer_queue)) {
 		dprintf(D_FULLDEBUG, "Unable to evaluate the transfer queue expression to a string.\n");
+    jobAd.Unchain();
 		return true;
 	}
+  jobAd.Unchain();
 
 	long mb_for_download, mb_for_upload;
-	if (!scheddAd.EvaluateAttrNumber(transfer_queue + "FileTransferMBWaitingToDownload", mb_for_download))
+	if (!scheddAd.EvaluateAttrNumber(transfer_queue + "_FileTransferMBWaitingToDownload", mb_for_download))
 	{
 		dprintf(D_FULLDEBUG, "Unable to determine MB waiting to download for transfer queue %s.\n", transfer_queue.c_str());
 		return true;
 	}
-	if (!scheddAd.EvaluateAttrNumber(transfer_queue + "FileTransferMBWaitingToUpload", mb_for_upload))
+	if (!scheddAd.EvaluateAttrNumber(transfer_queue + "_FileTransferMBWaitingToUpload", mb_for_upload))
 	{
 		dprintf(D_FULLDEBUG, "Unable to determine MB waiting to upload for transfer queue %s.\n", transfer_queue.c_str());
 		return true;
