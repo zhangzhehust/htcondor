@@ -130,17 +130,17 @@ IsANetworkMatch(classad::ClassAd &jobAd, classad::ClassAd &machineAd, const clas
 		dprintf(D_FULLDEBUG, "Unable to determine the transfer queue expression from the schedd ad.\n");
 		return true;
 	}
-  classad::ClassAd *ad_for_eval = match_ad.GetLeftContext();
-  jobAd.ChainToAd(&machineAd);
+	classad::ClassAd *ad_for_eval = match_ad.GetLeftContext();
+	jobAd.ChainToAd(&machineAd);
 	ScopeGuard scope(*expr, &jobAd);
 	std::string transfer_queue;
 	classad::Value v;
 	if (!expr->Evaluate(v) || !v.IsStringValue(transfer_queue)) {
 		dprintf(D_FULLDEBUG, "Unable to evaluate the transfer queue expression to a string.\n");
-    jobAd.Unchain();
+		jobAd.Unchain();
 		return true;
 	}
-  jobAd.Unchain();
+	jobAd.Unchain();
 
 	long mb_for_download, mb_for_upload;
 	if (!scheddAd.EvaluateAttrNumber(transfer_queue + "_FileTransferMBWaitingToDownload", mb_for_download))
@@ -154,11 +154,30 @@ IsANetworkMatch(classad::ClassAd &jobAd, classad::ClassAd &machineAd, const clas
 		return true;
 	}
 	long bandwidth_down_mbps, bandwidth_up_mbps;
+	long bandwidth_down_bps, bandwidth_up_bps;
+	std::string time_span("1m");
 	if (!EstimateNetworkBandwidth(scheddAd, machineAd, bandwidth_down_mbps, bandwidth_up_mbps))
 	{
-		bandwidth_down_mbps = param_integer("ESTIMATED_BANDWIDTH_DOWN_MBPS", 1000);
-		bandwidth_up_mbps = param_integer("ESTIMATED_BANDWIDTH_UP_MBPS", 1000);
-		dprintf(D_FULLDEBUG, "Unable to estimate network bandwidth; using defaults of %ld mbps down / %ld mbps up.\n", bandwidth_down_mbps, bandwidth_up_mbps);
+		if(mb_for_download != 0 && scheddAd.EvaluateAttrNumber(transfer_queue + "_FileTransferDownloadBytesPerSecond_" + time_span, bandwidth_down_bps))
+		{
+			dprintf(D_FULLDEBUG, "File transfer download bytes per second for transfer queue %s is %ld.\n", transfer_queue.c_str(), bandwidth_down_bps);
+			bandwidth_down_mbps = bandwidth_down_bps * 8 / 1000000;
+		}
+		else
+		{
+			bandwidth_down_mbps = param_integer("ESTIMATED_BANDWIDTH_DOWN_MBPS", 1000);
+			dprintf(D_FULLDEBUG, "Unable to estimate network bandwidth; using defaults of %ld mbps down.\n", bandwidth_down_mbps);
+		}
+		if(mb_for_upload !=0 && scheddAd.EvaluateAttrNumber(transfer_queue + "_FileTransferUploadBytesPerSecond_" + time_span, bandwidth_up_bps))
+		{
+			dprintf(D_FULLDEBUG, "File transfer upload bytes per second for transfer queue %s is %ld.\n", transfer_queue.c_str(), bandwidth_up_bps);
+			bandwidth_up_mbps = bandwidth_up_bps*8 / 1000000;
+		}
+		else
+		{
+			bandwidth_up_mbps = param_integer("ESTIMATED_BANDWIDTH_UP_MBPS", 1000);
+			dprintf(D_FULLDEBUG, "Unable to estimate network bandwidth; using defaults of %ld mbps up.\n", bandwidth_up_mbps);
+		}
 	}
 	long max_wait = param_integer("MAX_ESTIMATED_NETWORK_WAIT", 600);
 	long est_download_wait = mb_for_download * 8 / bandwidth_down_mbps;

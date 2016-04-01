@@ -4229,6 +4229,7 @@ matchmakingAlgorithm(const char *scheddName, const char *scheddAddr, const Class
 		bool is_a_network_match = IsANetworkMatch(request, *candidate, scheddAd);
 		if( !is_a_network_match ) {
 			rejForNetwork++;
+			continue;
 		}
 
 		candidatePreemptState = NO_PREEMPTION;
