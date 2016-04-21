@@ -700,6 +700,38 @@ TransferQueueManager::RegisterStats(char const *user,IOStats &iostats,bool unreg
 		else {
 			m_stat_pool.AddProbe(attr.c_str(),&iostats.upload_MB_waiting,NULL,flags|iostats.upload_MB_waiting.PubValue);
 		}
+		formatstr(attr, "%s%s", user_attr.c_str(), ATTR_TRANSFER_QUEUE_NUM_UPLOADING);
+		if ( unregister) {
+			m_stat_pool.RemoveProbe(attr.c_str());
+			iostats.num_uploading.Unpublish(*unpublish_ad, attr.c_str());
+		}
+		else {
+			m_stat_pool.AddProbe(attr.c_str(), &iostats.num_uploading, NULL, flags|iostats.num_uploading.PubValue);
+		}
+		formatstr(attr, "%s%s", user_attr.c_str(), ATTR_TRANSFER_QUEUE_NUM_WAITING_TO_UPLOAD);
+		if ( unregister ) {
+			m_stat_pool.RemoveProbe(attr.c_str());
+			iostats.num_waiting_to_upload.Unpublish(*unpublish_ad, attr.c_str());
+		}
+		else {
+			m_stat_pool.AddProbe(attr.c_str(), &iostats.num_waiting_to_upload, NULL, flags|iostats.num_waiting_to_upload.PubValue);
+		}
+		formatstr(attr, "%s%s", user_attr.c_str(), ATTR_TRANSFER_QUEUE_NUM_DOWNLOADING);
+		if ( unregister) {
+			m_stat_pool.RemoveProbe(attr.c_str());
+			iostats.num_downloading.Unpublish(*unpublish_ad, attr.c_str());
+		}
+		else {
+			m_stat_pool.AddProbe(attr.c_str(), &iostats.num_downloading, NULL, flags|iostats.num_downloading.PubValue);
+		}
+		formatstr(attr, "%s%s", user_attr.c_str(), ATTR_TRANSFER_QUEUE_NUM_WAITING_TO_DOWNLOAD);
+		if ( unregister ) {
+			m_stat_pool.RemoveProbe(attr.c_str());
+			iostats.num_waiting_to_download.Unpublish(*unpublish_ad, attr.c_str());
+		}
+		else {
+			m_stat_pool.AddProbe(attr.c_str(), &iostats.num_waiting_to_download, NULL, flags|iostats.num_waiting_to_download.PubValue);
+		}
 	}
 }
 
@@ -721,6 +753,10 @@ TransferQueueManager::ClearTransferCounts()
 		itr->second.idle = 0;
 		itr->second.iostats.upload_MB_waiting = 0;
 		itr->second.iostats.download_MB_waiting = 0;
+		itr->second.iostats.num_uploading = 0;
+		itr->second.iostats.num_waiting_to_upload = 0;
+		itr->second.iostats.num_downloading = 0;
+		itr->second.iostats.num_waiting_to_download = 0;
 	}
 }
 
@@ -748,17 +784,26 @@ TransferQueueManager::CheckTransferQueue() {
 
 	m_xfer_queue.Rewind();
 	while( m_xfer_queue.Next(client) ) {
+		TransferQueueUser &user = GetUserRec(client->m_up_down_queue_user);
 		if( client->m_gave_go_ahead ) {
-			GetUserRec(client->m_up_down_queue_user).running++;
+			user.running++;
 			if( client->m_downloading ) {
 				downloading += 1;
+				user.iostats.num_downloading = user.running;
 			}
 			else {
 				uploading += 1;
+				user.iostats.num_uploading = user.running;
 			}
 		}
 		else {
-			GetUserRec(client->m_up_down_queue_user).idle++;
+			user.idle++;
+			if(client->m_downloading) {
+				user.iostats.num_waiting_to_download = user.idle;
+			}
+			else {
+				user.iostats.num_waiting_to_upload = user.idle;
+			}
 		}
 	}
 
@@ -894,9 +939,13 @@ TransferQueueManager::CheckTransferQueue() {
 			user.idle -= 1;
 			if( client->m_downloading ) {
 				downloading += 1;
+				user.iostats.num_downloading = user.running;
+				user.iostats.num_waiting_to_download = user.idle;
 			}
 			else {
 				uploading += 1;
+				user.iostats.num_uploading = user.running;
+				user.iostats.num_waiting_to_upload = user.idle;
 			}
 		}
 	}

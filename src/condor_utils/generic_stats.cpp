@@ -1297,6 +1297,10 @@ void stats_entry_sum_ema_rate<T>::Publish(ClassAd & ad, const char * pattr, int 
 				ClassAdAssign(ad, attr_name.c_str(), this->ema[i].ema);
 			}
 		}
+		// also publish the recent max rate within the past 1 hour
+		std::string attr_name;
+		formatstr(attr_name, "%sPerSecond_RecentMax", pattr);
+		ClassAdAssign(ad, attr_name.c_str(), this->recent_max_rate);
 	}
 }
 

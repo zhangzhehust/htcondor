@@ -38,6 +38,10 @@ class IOStats {
 	stats_entry_sum_ema_rate<double> net_write;
 	stats_entry_abs<double> upload_MB_waiting;
 	stats_entry_abs<double> download_MB_waiting;
+	stats_entry_abs<int> num_uploading;
+	stats_entry_abs<int> num_waiting_to_upload;
+	stats_entry_abs<int> num_downloading;
+	stats_entry_abs<int> num_waiting_to_download;
 
 	void Add(IOStats &s);
 	void ConfigureEMAHorizons(classy_counted_ptr<stats_ema_config> config);

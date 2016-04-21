@@ -690,8 +690,13 @@ template <class T> class stats_entry_sum_ema_rate : public stats_entry_ema_base<
 public:
 	T recent_sum;
 
+	T recent_max_rate; // recent max rate of growth (currently implemented as 1h)
+
+	time_t last_recent_max_rate_time;
+
 	void Clear() {
 		this->recent_sum = 0;
+		this->recent_max_rate = 0;
 		stats_entry_ema_base<T>::Clear();
 	}
 	T Set(T val) { 
@@ -714,6 +719,16 @@ public:
 		if( now > this->recent_start_time ) {
 			time_t interval = now - this->recent_start_time;
 			double recent_rate = (double)this->recent_sum/interval;
+			if (recent_rate < recent_max_rate) {
+				if (now - this->last_recent_max_rate_time > 3600) {
+					recent_max_rate = recent_rate;
+					last_recent_max_rate_time = now;
+				}
+			}
+			else {
+				recent_max_rate = recent_rate;
+				last_recent_max_rate_time = now;
+			}
 
 			for(size_t i = this->ema.size(); i--; ) {
 				this->ema[i].Update(recent_rate,interval,this->ema_config->horizons[i]);
