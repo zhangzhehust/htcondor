@@ -666,6 +666,23 @@ TransferQueueManager::RegisterStats(char const *user,IOStats &iostats,bool unreg
 		else {
 			m_stat_pool.AddProbe(attr.c_str(),&iostats.download_MB_waiting,NULL,flags|iostats.download_MB_waiting.PubValue);
 		}
+		formatstr(attr, "%s%s", user_attr.c_str(), ATTR_TRANSFER_QUEUE_NUM_DOWNLOADING);
+		if ( unregister) {
+			m_stat_pool.RemoveProbe(attr.c_str());
+			iostats.num_downloading.Unpublish(*unpublish_ad, attr.c_str());
+		}
+		else {
+			m_stat_pool.AddProbe(attr.c_str(), &iostats.num_downloading, NULL, flags|iostats.num_downloading.PubValue);
+		}
+		formatstr(attr, "%s%s", user_attr.c_str(), ATTR_TRANSFER_QUEUE_NUM_WAITING_TO_DOWNLOAD);
+		if ( unregister ) {
+			m_stat_pool.RemoveProbe(attr.c_str());
+			iostats.num_waiting_to_download.Unpublish(*unpublish_ad, attr.c_str());
+		}
+		else {
+			m_stat_pool.AddProbe(attr.c_str(), &iostats.num_waiting_to_download, NULL, flags|iostats.num_waiting_to_download.PubValue);
+		}
+
 	}
 	if( uploading ) {
 		formatstr(attr,"%sFileTransferUploadBytes",user_attr.c_str());
@@ -715,22 +732,6 @@ TransferQueueManager::RegisterStats(char const *user,IOStats &iostats,bool unreg
 		}
 		else {
 			m_stat_pool.AddProbe(attr.c_str(), &iostats.num_waiting_to_upload, NULL, flags|iostats.num_waiting_to_upload.PubValue);
-		}
-		formatstr(attr, "%s%s", user_attr.c_str(), ATTR_TRANSFER_QUEUE_NUM_DOWNLOADING);
-		if ( unregister) {
-			m_stat_pool.RemoveProbe(attr.c_str());
-			iostats.num_downloading.Unpublish(*unpublish_ad, attr.c_str());
-		}
-		else {
-			m_stat_pool.AddProbe(attr.c_str(), &iostats.num_downloading, NULL, flags|iostats.num_downloading.PubValue);
-		}
-		formatstr(attr, "%s%s", user_attr.c_str(), ATTR_TRANSFER_QUEUE_NUM_WAITING_TO_DOWNLOAD);
-		if ( unregister ) {
-			m_stat_pool.RemoveProbe(attr.c_str());
-			iostats.num_waiting_to_download.Unpublish(*unpublish_ad, attr.c_str());
-		}
-		else {
-			m_stat_pool.AddProbe(attr.c_str(), &iostats.num_waiting_to_download, NULL, flags|iostats.num_waiting_to_download.PubValue);
 		}
 	}
 }

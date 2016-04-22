@@ -255,7 +255,7 @@ IsANetworkMatch(classad::ClassAd &jobAd, classad::ClassAd &machineAd, const clas
 	long max_wait = param_integer("MAX_ESTIMATED_NETWORK_WAIT", 600);
 	long est_download_wait = mb_for_download * 8 / bandwidth_down_mbps;
 	long est_upload_wait = mb_for_upload * 8 / bandwidth_up_mbps;
-	if (max_wait < est_download_wait) {
+	/*if (max_wait < est_download_wait) {
 		dprintf(D_FULLDEBUG, "Rejecting match due to insufficient download bandwidth.  Estimated wait is %ld of max %ld.\n", est_download_wait, max_wait);
 		return false;
 	}
@@ -263,7 +263,7 @@ IsANetworkMatch(classad::ClassAd &jobAd, classad::ClassAd &machineAd, const clas
 		dprintf(D_FULLDEBUG, "Rejecting match due to insufficient upload bandwidth.  Estimated wait is %ld of max %ld.\n", est_upload_wait, max_wait);
 		return false;
 	}
-	dprintf(D_FULLDEBUG, "Match has sufficient bandwidth.  Estimated bandwidth is %ld Mbps down / %ld Mbps up.  There are %ld and %ld MB in queue %s, for an estimated wait time of %lds for downloads and %lds for uploads, respectively.\n", bandwidth_down_mbps, bandwidth_up_mbps, mb_for_download, mb_for_upload, transfer_queue.c_str(), est_download_wait, est_upload_wait);
+	dprintf(D_FULLDEBUG, "Match has sufficient bandwidth.  Estimated bandwidth is %ld Mbps down / %ld Mbps up.  There are %ld and %ld MB in queue %s, for an estimated wait time of %lds for downloads and %lds for uploads, respectively.\n", bandwidth_down_mbps, bandwidth_up_mbps, mb_for_download, mb_for_upload, transfer_queue.c_str(), est_download_wait, est_upload_wait);*/
 	return true;
 }
 
