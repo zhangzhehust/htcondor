@@ -367,6 +367,7 @@ ScheddNegotiate::sendJobInfo(Sock *sock, bool just_sig_attrs)
 		sig_attrs.insert(ATTR_AUTO_CLUSTER_ID);
 		sig_attrs.insert(ATTR_WANT_MATCH_DIAGNOSTICS);
 		sig_attrs.insert(ATTR_WANT_CLAIMING);  // used for Condor-G matchmaking
+		sig_attrs.insert(ATTR_TRANSFER_INPUT_SIZE_MB);
 		// ship it!
 		putad_result = putClassAd(sock, m_current_job_ad, 0, &sig_attrs);
 	} else {

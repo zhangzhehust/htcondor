@@ -123,6 +123,15 @@ EstimateNetworkBandwidth(const classad::ClassAd &scheddAd, const classad::ClassA
 bool
 IsANetworkMatch(classad::ClassAd &jobAd, classad::ClassAd &machineAd, const classad::ClassAd &scheddAd)
 {
+	MyString job_classad_str;
+	MyString machine_classad_str;
+	MyString schedd_classad_str;
+	sPrintAd(job_classad_str, jobAd);
+	sPrintAd(machine_classad_str, machineAd);
+	sPrintAd(schedd_classad_str, scheddAd);
+	dprintf(D_FULLDEBUG, "The job classad is: %s\n", job_classad_str.Value());
+	dprintf(D_FULLDEBUG, "The machine classad is: %s\n", machine_classad_str.Value());
+	dprintf(D_FULLDEBUG, "The Schedd classad is: %s\n", schedd_classad_str.Value());
 	TemporaryMatchAd match_ad(jobAd, machineAd);
 
 	classad::ExprTree *expr = scheddAd.Lookup(ATTR_TRANSFER_QUEUE_USER_EXPR);
@@ -131,7 +140,17 @@ IsANetworkMatch(classad::ClassAd &jobAd, classad::ClassAd &machineAd, const clas
 		return true;
 	}
 	classad::ClassAd *ad_for_eval = match_ad.GetLeftContext();
+	MyString ad_eval_str;
+	sPrintAd(ad_eval_str, *ad_for_eval);
+	dprintf(D_FULLDEBUG, "Ad for evaluation is: %s\n", ad_eval_str.Value());
 	jobAd.ChainToAd(&machineAd);
+	std::string cms_site;
+	if (!jobAd.EvaluateAttrString("Glidein_CMSSite", cms_site)) {
+		dprintf(D_FULLDEBUG, "Unable to evaluate Glidein_CMSSite to a string.\n");
+	}
+	else {
+		dprintf(D_FULLDEBUG, "Remote execution CMS site is: %s\n", cms_site.c_str());
+	}
 	ScopeGuard scope(*expr, &jobAd);
 	std::string transfer_queue;
 	classad::Value v;
@@ -142,25 +161,27 @@ IsANetworkMatch(classad::ClassAd &jobAd, classad::ClassAd &machineAd, const clas
 	}
 	jobAd.Unchain();
 
-	long mb_for_download, mb_for_upload;
+	long mb_for_download = 0; 
+	long mb_for_upload = 0;
 	if (!scheddAd.EvaluateAttrNumber(transfer_queue + "_FileTransferMBWaitingToDownload", mb_for_download))
 	{
 		dprintf(D_FULLDEBUG, "Unable to determine MB waiting to download for transfer queue %s.\n", transfer_queue.c_str());
-		return true;
+		//return true;
 	}
 	if (!scheddAd.EvaluateAttrNumber(transfer_queue + "_FileTransferMBWaitingToUpload", mb_for_upload))
 	{
 		dprintf(D_FULLDEBUG, "Unable to determine MB waiting to upload for transfer queue %s.\n", transfer_queue.c_str());
-		return true;
+		//return true;
 	}
 	long bandwidth_down_mbps, bandwidth_up_mbps;
 	long bandwidth_down_bps, bandwidth_up_bps;
-	long bandwidth_down_bps_recent_max;
-	long bandwidth_up_bps_recent_max;
-	std::string time_span("1m");
+	double bandwidth_down_bps_recent_max;
+	double bandwidth_up_bps_recent_max;
 	int num_max_uploading, num_max_downloading;
-	int active_num_uploading, active_num_downloading;
-	int num_wait_uploading, num_wait_downloading;
+	int active_num_uploading = 0;
+	int active_num_downloading = 0;
+	int num_wait_uploading = 0;
+	int num_wait_downloading = 0;
 	if (!EstimateNetworkBandwidth(scheddAd, machineAd, bandwidth_down_mbps, bandwidth_up_mbps))
 	{
 		// estimate file transfer time (include wait in file transfer queue and actual file transfer) using file transfer queue statistics
@@ -189,7 +210,7 @@ IsANetworkMatch(classad::ClassAd &jobAd, classad::ClassAd &machineAd, const clas
 		}
 		if(scheddAd.EvaluateAttrNumber(transfer_queue + "_" + ATTR_TRANSFER_QUEUE_NUM_DOWNLOADING, active_num_downloading))
 		{
-			dprintf(D_FULLDEBUG, "The number of active file transfer downloads is %d.\n", active_num_downloading);
+			dprintf(D_FULLDEBUG, "The number of active file transfer downloads for transfer queue %s is %d.\n", transfer_queue.c_str(), active_num_downloading);
 		}
 		if(scheddAd.EvaluateAttrNumber(transfer_queue + "_" + ATTR_TRANSFER_QUEUE_NUM_WAITING_TO_UPLOAD, num_wait_uploading))
 		{
@@ -197,37 +218,31 @@ IsANetworkMatch(classad::ClassAd &jobAd, classad::ClassAd &machineAd, const clas
 		}
 		if(scheddAd.EvaluateAttrNumber(transfer_queue + "_" + ATTR_TRANSFER_QUEUE_NUM_WAITING_TO_DOWNLOAD, num_wait_downloading))
 		{
-			dprintf(D_FULLDEBUG, "The number of file transfer wait to be downloaded is %d.\n", num_wait_downloading);
+			dprintf(D_FULLDEBUG, "The number of file transfer wait to be downloaded for transfer queue %s is %d.\n", transfer_queue.c_str(), num_wait_downloading);
 		}
 
-		if(mb_for_download != 0 && scheddAd.EvaluateAttrNumber(transfer_queue + "_FileTransferDownloadBytesPerSecond_" + time_span, bandwidth_down_bps))
+		if(scheddAd.EvaluateAttrNumber(transfer_queue + "_FileTransferUploadBytesPerSecond_RecentMax", bandwidth_up_bps_recent_max) && bandwidth_up_bps_recent_max > 1e-5)
 		{
-			dprintf(D_FULLDEBUG, "File transfer download bytes per second for transfer queue %s is %ld.\n", transfer_queue.c_str(), bandwidth_down_bps);
-			bandwidth_down_mbps = bandwidth_down_bps * 8 / 1000000;
+			dprintf(D_FULLDEBUG, "File transfer upload bytes per second recent max in past 1 hour for transfer queue %s is %f.\n", transfer_queue.c_str(), bandwidth_up_bps_recent_max);
+
 		}
 		else
 		{
-			bandwidth_down_mbps = param_integer("ESTIMATED_BANDWIDTH_DOWN_MBPS", 1000);
-			dprintf(D_FULLDEBUG, "Unable to estimate network bandwidth; using defaults of %ld mbps down.\n", bandwidth_down_mbps);
+			bandwidth_up_bps_recent_max  = (double)param_integer(("BANDWIDTH_UP_MBPS_" + transfer_queue).c_str(), 1000)/8*1000000;
+			dprintf(D_FULLDEBUG, "Could not retrive recent max rate for file transfer upload in transfer queue %s, read from configuration as %f.\n", 
+				transfer_queue.c_str(), 
+				bandwidth_up_bps_recent_max);
 		}
-		if(mb_for_upload !=0 && scheddAd.EvaluateAttrNumber(transfer_queue + "_FileTransferUploadBytesPerSecond_" + time_span, bandwidth_up_bps))
+		if(scheddAd.EvaluateAttrNumber(transfer_queue + "_FileTransferDownloadBytesPerSecond_RecentMax", bandwidth_down_bps_recent_max) && bandwidth_down_bps_recent_max > 1e-5)
 		{
-			dprintf(D_FULLDEBUG, "File transfer upload bytes per second for transfer queue %s is %ld.\n", transfer_queue.c_str(), bandwidth_up_bps);
-			bandwidth_up_mbps = bandwidth_up_bps*8 / 1000000;
+			dprintf(D_FULLDEBUG, "File transfer download bytes per second recent max in past 1 hour for transfer queue %s is %f.\n", transfer_queue.c_str(), bandwidth_down_bps_recent_max);
 		}
 		else
 		{
-			bandwidth_up_mbps = param_integer("ESTIMATED_BANDWIDTH_UP_MBPS", 1000);
-			dprintf(D_FULLDEBUG, "Unable to estimate network bandwidth; using defaults of %ld mbps up.\n", bandwidth_up_mbps);
-		}
-		if(scheddAd.EvaluateAttrNumber(transfer_queue + "_FileTransferUploadBytesPerSecond_RecentMax", bandwidth_up_bps_recent_max))
-		{
-			dprintf(D_FULLDEBUG, "File transfer upload bytes per second recent max in past 1 hour for transfer queue %s is %ld.\n", transfer_queue.c_str(), bandwidth_up_bps_recent_max);
-
-		}
-		if(scheddAd.EvaluateAttrNumber(transfer_queue + "_FileTransferDownloadBytesPerSecond_RecentMax", bandwidth_down_bps_recent_max))
-		{
-			dprintf(D_FULLDEBUG, "File transfer download bytes per second recent max in past 1 hour for transfer queue %s is %ld.\n", transfer_queue.c_str(), bandwidth_down_bps_recent_max);
+			bandwidth_down_bps_recent_max  = (double)param_integer(("BANDWIDTH_DOWN_MBPS_" + transfer_queue).c_str(), 1000)/8*1000000;
+			dprintf(D_FULLDEBUG, "Could not retrive recent max rate for file transfer download in transfer queue %s, read from configuration as %f.\n", 
+				transfer_queue.c_str(), 
+				bandwidth_down_bps_recent_max);
 		}
 	}
 	// Use the active file transfers for this transfer queue, max transfer rate for this transfer queue in the past one hour
@@ -242,28 +257,15 @@ IsANetworkMatch(classad::ClassAd &jobAd, classad::ClassAd &machineAd, const clas
 		transfer_input_size_mb = 0;
 		dprintf(D_FULLDEBUG, "Cannot retrieve input file transfer sandbox size, assume zero input.\n");
 	}
-	long est_wait_in_u_transfer_queue_time = transfer_input_size_mb / (bandwidth_up_bps_recent_max/1000000/active_num_uploading);
-	long est_actual_upload_file_transfer_time = (mb_for_upload*0.5) / (bandwidth_up_bps_recent_max/1000000);
+	long est_actual_upload_file_transfer_time = (long) (transfer_input_size_mb / (bandwidth_up_bps_recent_max/1000000/(active_num_uploading+1)));
+	long est_wait_in_u_transfer_queue_time  = (long) ((mb_for_upload*0.5) / (bandwidth_up_bps_recent_max/1000000));
 	long est_upload_time = est_wait_in_u_transfer_queue_time + est_actual_upload_file_transfer_time;
 	std::string Compute_Site;
 	if (machineAd.EvaluateAttrString("Glidein_CMSSite", Compute_Site))
 	{
 		dprintf(D_FULLDEBUG, "Compute site is: %s.\n", Compute_Site.c_str());
 	}
-	jobAd.InsertAttr("EstimatedUploadFileTransferTime_" + Compute_Site, est_upload_time);
 	dprintf(D_ALWAYS, "Estimated upload file transfer time to site %s is %ld.\n", Compute_Site.c_str(), est_upload_time);
-	long max_wait = param_integer("MAX_ESTIMATED_NETWORK_WAIT", 600);
-	long est_download_wait = mb_for_download * 8 / bandwidth_down_mbps;
-	long est_upload_wait = mb_for_upload * 8 / bandwidth_up_mbps;
-	/*if (max_wait < est_download_wait) {
-		dprintf(D_FULLDEBUG, "Rejecting match due to insufficient download bandwidth.  Estimated wait is %ld of max %ld.\n", est_download_wait, max_wait);
-		return false;
-	}
-	if (max_wait < est_upload_wait) {
-		dprintf(D_FULLDEBUG, "Rejecting match due to insufficient upload bandwidth.  Estimated wait is %ld of max %ld.\n", est_upload_wait, max_wait);
-		return false;
-	}
-	dprintf(D_FULLDEBUG, "Match has sufficient bandwidth.  Estimated bandwidth is %ld Mbps down / %ld Mbps up.  There are %ld and %ld MB in queue %s, for an estimated wait time of %lds for downloads and %lds for uploads, respectively.\n", bandwidth_down_mbps, bandwidth_up_mbps, mb_for_download, mb_for_upload, transfer_queue.c_str(), est_download_wait, est_upload_wait);*/
 	return true;
 }
 

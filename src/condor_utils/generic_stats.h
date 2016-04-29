@@ -718,9 +718,13 @@ public:
 			// but that is overkill for our current uses of this code.
 		if( now > this->recent_start_time ) {
 			time_t interval = now - this->recent_start_time;
+			dprintf(D_ALWAYS, "The update time interval is %d.\n", (int)interval);
+			dprintf(D_ALWAYS, "The recent sum for this stat is %f.\n", (double)this->recent_sum);
 			double recent_rate = (double)this->recent_sum/interval;
+			dprintf(D_ALWAYS, "The recent rate is %f.\n", recent_rate);
 			if (recent_rate < recent_max_rate) {
-				if (now - this->last_recent_max_rate_time > 3600) {
+				// make sure recent_max_rate is not too small (close to 0)
+				if (recent_max_rate > 1e-5 && now - this->last_recent_max_rate_time > 3600) {
 					recent_max_rate = recent_rate;
 					last_recent_max_rate_time = now;
 				}
@@ -729,6 +733,7 @@ public:
 				recent_max_rate = recent_rate;
 				last_recent_max_rate_time = now;
 			}
+			dprintf(D_ALWAYS, "The recent max rate is %f.\n", recent_max_rate);
 
 			for(size_t i = this->ema.size(); i--; ) {
 				this->ema[i].Update(recent_rate,interval,this->ema_config->horizons[i]);
