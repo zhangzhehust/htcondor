@@ -4344,6 +4344,9 @@ matchmakingAlgorithm(const char *scheddName, const char *scheddAddr, const Class
             rejForSubmitterLimit++;
             continue;
         }
+		MyString candidate_classad_str;
+		sPrintAd(candidate_classad_str, *candidate);
+		dprintf(D_FULLDEBUG, "The worker node candidate classad is: %s\n", candidate_classad_str.Value());
 
 		candidatePreJobRankValue = EvalNegotiatorMatchRank(
 		  "NEGOTIATOR_PRE_JOB_RANK",NegotiatorPreJobRank,

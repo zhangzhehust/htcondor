@@ -266,6 +266,7 @@ IsANetworkMatch(classad::ClassAd &jobAd, classad::ClassAd &machineAd, const clas
 		dprintf(D_FULLDEBUG, "Compute site is: %s.\n", Compute_Site.c_str());
 	}
 	dprintf(D_ALWAYS, "Estimated upload file transfer time to site %s is %ld.\n", Compute_Site.c_str(), est_upload_time);
+	machineAd.InsertAttr("EstimatedUploadFileTransferTime", est_upload_time);
 	return true;
 }
 

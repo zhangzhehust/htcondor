@@ -490,6 +490,9 @@ TransferQueueRequest::ReadReport(TransferQueueManager *manager)
 				m_sock->peer_description(),report.Value());
 		return false;
 	}
+	else {
+		dprintf(D_FULLDEBUG, "Read report: bytes sent is %u.\n", recent_bytes_sent);
+	}
 
 	iostats.bytes_sent = (double)recent_bytes_sent;
 	iostats.bytes_received = (double)recent_bytes_received;
