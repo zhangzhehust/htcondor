@@ -4135,6 +4135,17 @@ matchmakingAlgorithm(const char *scheddName, const char *scheddAddr, const Class
 				rejForSubmitterLimit);
 		}
 			//  TODO  - compare results, reserve net bandwidth
+		if ( cached_bestSoFar ) {
+			int cluster_id_new;
+			int proc_id_new;
+			int estimated_upload_time;
+			std::string slot_name;
+			request.LookupInteger(ATTR_CLUSTER_ID, cluster_id_new);
+			request.LookupInteger(ATTR_PROC_ID, proc_id_new);
+			cached_bestSoFar->LookupInteger("EstimatedUploadFileTransferTime", estimated_upload_time);
+			cached_bestSoFar->EvaluateAttrString("Name", slot_name);
+			dprintf(D_FULLDEBUG, "Exp: cluster id %d, proc id %d, estimated upload time %d, slot name %s\n", cluster_id_new, proc_id_new, estimated_upload_time, slot_name.c_str());
+		}
 		return cached_bestSoFar;
 	}
 
@@ -4453,6 +4464,16 @@ matchmakingAlgorithm(const char *scheddName, const char *scheddAddr, const Class
 		insert_into_rejects(scheddName,request);
 	}
 	// this is the best match
+	int cluster_id_new;
+	int proc_id_new;
+	int estimated_upload_time;
+	std::string slot_name;
+	request.LookupInteger(ATTR_CLUSTER_ID, cluster_id_new);
+	request.LookupInteger(ATTR_PROC_ID, proc_id_new);
+	bestSoFar->LookupInteger("EstimatedUploadFileTransferTime", estimated_upload_time);
+	bestSoFar->EvaluateAttrString("Name", slot_name);
+	dprintf(D_FULLDEBUG, "Exp: cluster id %d, proc id %d, estimated upload time %d, slot name %s\n", cluster_id_new, proc_id_new, estimated_upload_time, slot_name.c_str());
+
 	return bestSoFar;
 }
 

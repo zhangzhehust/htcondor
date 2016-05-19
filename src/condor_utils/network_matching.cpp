@@ -267,6 +267,14 @@ IsANetworkMatch(classad::ClassAd &jobAd, classad::ClassAd &machineAd, const clas
 	}
 	dprintf(D_ALWAYS, "Estimated upload file transfer time to site %s is %ld.\n", Compute_Site.c_str(), est_upload_time);
 	machineAd.InsertAttr("EstimatedUploadFileTransferTime", est_upload_time);
+	bool match_with_network_threshold = param_boolean("MATCH_WITH_NETWORK_THRESHOLD", false);
+	if (match_with_network_threshold) {
+		long max_wait = param_integer("MAX_ESTIMATED_NETWORK_WAIT", 1000);
+		if (max_wait < est_upload_time) {
+			dprintf(D_FULLDEBUG, "Rejecting match due to insufficient upload bandwidth. Estimated wait is %ld of max %ld.\n", est_upload_time, max_wait);
+			return false;
+		}
+	}
 	return true;
 }
 
